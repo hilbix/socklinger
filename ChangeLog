@@ -1,0 +1,7 @@
+2004-08-16  U-KOSH\Administrator  <Administrator@KOSH>
+
+	* socklinger.c (socklinger_accept, main): prefix "count@" for
+	number of parallel connections implemented.  It looks like it is
+	preforking, but the script isn't preforking at all.  Socklinger
+	terminates as soon as any child comes back, but the running childs
+	are not terminated yet by force.

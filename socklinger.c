@@ -20,9 +20,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.1  2004-08-16 01:29:57  Administrator
- * initial add
+ * Revision 1.2  2004-08-16 14:03:16  Administrator
+ * Support for handling more than one connection (a fixed number) in parallel
  *
+ * Revision 1.1  2004/08/16 01:29:57  Administrator
+ * initial add
  */
 
 #include <stdio.h>
@@ -130,7 +132,7 @@ sock_tcp_listen(const char *s)
   if (bind(sock, &sin.sa, len))
     ex("bind");
 
-  if (listen(sock, 16))
+  if (listen(sock, 100))
     ex("listen");
 
   return sock;
@@ -138,7 +140,7 @@ sock_tcp_listen(const char *s)
 /* END COPY
  */
 
-void
+static int
 socklinger(int fi, int fo, char **argv)
 {
   struct linger         linger;
@@ -152,14 +154,14 @@ socklinger(int fi, int fo, char **argv)
   linger.l_onoff        = 1;
   linger.l_linger       = 65535;
   if (setsockopt(fo, SOL_SOCKET, SO_LINGER, &linger, sizeof linger) && fo!=1)
-    ex("linger");
+    return 1;
 
   on    = 102400;
   if (setsockopt(fi, SOL_SOCKET, SO_RCVBUF, &on, sizeof on) && fi)
-    ex("rcvbuf");
+    return 1;
   on    = 102400;
   if (setsockopt(fo, SOL_SOCKET, SO_SNDBUF, &on, sizeof on) && fo!=1)
-    ex("sndbuf");
+    return 1;
 
   /* fork off the child
    */
@@ -208,46 +210,26 @@ socklinger(int fi, int fo, char **argv)
    *
    * Thus, so the lingering.
    */
-  shutdown(fo, SHUT_WR);
+  if (shutdown(fo, SHUT_WR))
+    return 1;
   while ((n=read(fi, buf, sizeof buf))!=0)
     if (n<0)
       if (errno!=EINTR && errno!=EAGAIN)
-	ex("read");
+	return 1;
+  return 0;
 }
 
-int
-main(int argc, char **argv)
+static void
+socklinger_accept(int sock, char **argv)
 {
-  int	sock;
   long	pid;
 
-  if (argc<3)
-    {
-      fprintf(stderr, "Usage: %s -|[host]:port|unixsocket program [args...]\n"
-		"\tVersion " SOCKLINGER_VERSION " compiled at " __DATE__ "\n"
-		"\tYou probably need this for simple TCP shell scripts:\n"
-		"\tif - is given, use stdout(!) as socket (inetd/tcpserver)\n"
-		"\telse the given socket (TCP or unix) is opened and listened on\n"
-		"\tand each connection is served by the progam (max. 1 in parallel):\n"
-		"\tExec program with args with stdin/stdout connected to socket\n"
-		"\tWait for program termination.\n"
-		"\tShutdown the stdout side of the socket.\n"
-		"\tWait (linger) on stdin until EOF is received.\n", argv[0]);
-      return 1;
-    }
-  if (!*argv[1] || !strcmp(argv[1],"-"))
-    {
-      socklinger(0, 1, argv+2);
-      return 0;
-    }
-
-  sock	= sock_tcp_listen(argv[1]);
   pid	= getpid();
   for (;;)
     {
       int	fd;
 
-      printf("[%ld] wait on socket %s\n", pid, argv[1]);
+      printf("[%05ld] socket wait %s\n", pid, argv[1]);
       fd	= accept(sock, NULL, NULL);
       if (fd<0)
 	{
@@ -255,10 +237,58 @@ main(int argc, char **argv)
 	    continue;
 	  ex("accept");
 	}
-      printf("[%ld] run program for connection %d\n", pid, fd);
-      socklinger(fd, fd, argv+2);
+      printf("[%05ld] run program for connection %d\n", pid, fd);
+      if (socklinger(fd, fd, argv+2))
+        perror("socklinger");
       if (close(fd))
 	ex("close");
+    }
+}
+
+int
+main(int argc, char **argv)
+{
+  int	sock;
+  long	cnt;
+  char	*end;
+
+  if (argc<3)
+    {
+      fprintf(stderr, "Usage: %s [n@]-|[host]:port|unixsocket program [args...]\n"
+		"\tVersion " SOCKLINGER_VERSION " compiled at " __DATE__ "\n"
+		"\tYou probably need this for simple TCP shell scripts:\n"
+		"\tif - or '' is given, use stdout(!) as socket (inetd/tcpserver)\n"
+		"\telse the given socket (TCP or unix) is opened and listened on\n"
+		"\tand each connection is served by the progam (max. n in parallel):\n"
+		"\tExec program with args with stdin/stdout connected to socket\n"
+		"\tWait for program termination.\n"
+		"\tShutdown the stdout side of the socket.\n"
+		"\tWait (linger) on stdin until EOF is received.\n", argv[0]);
+      return 1;
+    }
+  if ((cnt=strtol(argv[1],&end,0))>0 && *end=='@')
+    argv[1]	= end+1;
+  if (!*argv[1] || !strcmp(argv[1],"-"))
+    {
+      socklinger(0, 1, argv+2);
+      return 0;
+    }
+
+  sock	= sock_tcp_listen(argv[1]);
+  if (cnt<=1)
+    socklinger_accept(sock, argv);
+  else
+    {
+      int	n;
+      pid_t	pid;
+
+      for (n=cnt; --n>=0; )
+	if (!fork())
+	  socklinger_accept(sock, argv);
+      while ((pid=wait(NULL))==(pid_t)-1)
+	if (errno!=EINTR && errno!=EAGAIN)
+	  ex("main-wait");
+      ex("child came home");
     }
   return 0;
 }
