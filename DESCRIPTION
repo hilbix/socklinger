@@ -1,5 +1,12 @@
 Execute quick hack shell scripts connected to a socket.
-$Header$
+# $Header$
+# 
+# $Log$
+# Revision 1.2  2004-09-20 01:20:05  tino
+# published
+#
+# Revision 1.1  2004/08/16 01:29:57  Administrator
+# initial add
 
 Socklinger is thought for admins in a networked environment, who want to write some quick hack bash scripts
 to rapidly implement a socket based thingie just to get something done and reuse this solution for themself
@@ -35,8 +42,3 @@ step to reach my real goal:  HilbiX, a 1.44 MB floppy sized console-less network
 
 NOTE THAT IT'S LIKELY THAT SOCKLINGER WILL BE MERGED INTO SOME OTHER OF MY TOOLS.
 You will read, where you then can find it.  This is because I need support for non-TCP sockets, too.
-
-$Log$
-Revision 1.1  2004-08-16 01:29:57  Administrator
-initial add
-
