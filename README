@@ -1,0 +1,18 @@
+$Header$
+
+What it does: See file DESCRIPTION
+How to use:   See file example/proxy.sh
+
+To compile, just type
+	make
+
+Additional notes:
+	The Apache developers wrote a good source about lingering:
+	http://httpd.apache.org/docs/misc/fin_wait_2.html
+	This is true for HTTPD but is true for many other cases as well.
+
+-Tino, webmaster@scylla-charybdis.com
+$Log$
+Revision 1.1  2004-08-16 01:29:57  Administrator
+initial add
+

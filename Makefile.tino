@@ -1,0 +1,26 @@
+# $Header$
+#
+# This only is a Makefile stub.
+# See tino/Makefile.proto for description.
+#
+# $Log$
+# Revision 1.1  2004-08-16 01:29:57  Administrator
+# initial add
+#
+
+       PROG=socklinger
+      PROGS=$(PROG)
+       OBJS=
+    LDFLAGS=
+      CLEAN=
+  DISTCLEAN=
+#    LDFLAGS=-lefence
+#    TINOINC=tino_common.h
+#    TINOLIB=tino/lib.h
+
+##END##
+
+HERE=$(PWD)
+
+Makefile::
+	$(MAKE) -C tino tino HERE="$(HERE)"
