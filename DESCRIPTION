@@ -2,43 +2,61 @@ Execute quick hack shell scripts connected to a socket.
 # $Header$
 # 
 # $Log$
-# Revision 1.2  2004-09-20 01:20:05  tino
+# Revision 1.3  2005-03-15 18:28:05  tino
+# only text reformatted with emacs
+#
+# Revision 1.2  2004/09/20 01:20:05  tino
 # published
 #
 # Revision 1.1  2004/08/16 01:29:57  Administrator
 # initial add
 
-Socklinger is thought for admins in a networked environment, who want to write some quick hack bash scripts
-to rapidly implement a socket based thingie just to get something done and reuse this solution for themself
-later on, too.  Socklinger definitievely is not designed to offer a production service to customers.
-But it's just what *you* need to get *your* weird network script running for *your* needs, saving *your* time.
+Socklinger is thought for admins in a networked environment, who want
+to write some quick hack bash scripts to rapidly implement a socket
+based thingie just to get something done and reuse this solution for
+themself later on, too.  Socklinger definitievely is not designed to
+offer a production service to customers.  But it's just what *you*
+need to get *your* weird network script running for *your* needs,
+saving *your* time.
 
-When you want to write a quick hack, shell is convenient.
-However when you want to do this with networking scripts you often will observe stange effects if you call scripts from inetd.
-This is, because the "lingering" on sockets is extremely short (or missing) nowadays to protect against DoS-attacks.
-The effect is, that you will observe that the end of the output of the script just is not transmitted to the other side.
-Socklinger fixes this and restores, what you know from your good old and reliable SunOS from 1988.
+When you want to write a quick hack, shell is convenient.  However
+when you want to do this with networking scripts you often will
+observe stange effects if you call scripts from inetd.  This is,
+because the "lingering" on sockets is extremely short (or missing)
+nowadays to protect against DoS-attacks.  The effect is, that you will
+observe that the end of the output of the script just is not
+transmitted to the other side.  Socklinger fixes this and restores,
+what you know from your good old and reliable SunOS from 1988.
 
 Note that you might be tempted to use the exec-option of netcat, too.
-However netcat cannot reuse sockets on stdin like in inetd usage or when something is running under tcpd-control.
-And you don't have control over the number of scripts running in parallel.
+However netcat cannot reuse sockets on stdin like in inetd usage or
+when something is running under tcpd-control.  And you don't have
+control over the number of scripts running in parallel.
 
-Note that you can run scripts under tcpserver, too.
-However you will observe the linger-problem there.  Often you can fix the problem by adding a "sleep 10"
-at the end of the script.  However the hope that 10 seconds are long enough is no solution in my eyes.
-And often the sleep period slows down the other side, because the othere side waits until the socket is closed.
+Note that you can run scripts under tcpserver, too.  However you will
+observe the linger-problem there.  Often you can fix the problem by
+adding a "sleep 10" at the end of the script.  However the hope that
+10 seconds are long enough is no solution in my eyes.  And often the
+sleep period slows down the other side, because the othere side waits
+until the socket is closed.
 
-Socklinger is designed as a solution for quick hacks, so it's enough to only run one script in parallel.
-This way you don't have to bother about race conditions in the script.
-Socklinger also allows you to reuse the socket which comes from stdin or run it in a simple accept-loop.
+Socklinger is designed as a solution for quick hacks, so it's enough
+to only run one script in parallel.  This way you don't have to bother
+about race conditions in the script.  Socklinger also allows you to
+reuse the socket which comes from stdin or run it in a simple
+accept-loop.
 
-The source code of socklinger is so easy and lightweight that it can be adapted to other environments easily.
-It has been tested under several Linux distributions and Cygwin.
+The source code of socklinger is so easy and lightweight that it can
+be adapted to other environments easily.  It has been tested under
+several Linux distributions and Cygwin.
 
-There is an example debian installation proxy which caches all files downloaded in example/ .
-All you need is some machine with an Internet connection (probably a windows with Cygwin installed)
-and you can use the network install ISO image for your Debian.  Please note that this is another
-step to reach my real goal:  HilbiX, a 1.44 MB floppy sized console-less networked Linux install.
+There is an example debian installation proxy which caches all files
+downloaded in example/ .  All you need is some machine with an
+Internet connection (probably a windows with Cygwin installed) and you
+can use the network install ISO image for your Debian.  Please note
+that this is another step to reach my real goal: HilbiX, a 1.44 MB
+floppy sized console-less networked Linux install.
 
-NOTE THAT IT'S LIKELY THAT SOCKLINGER WILL BE MERGED INTO SOME OTHER OF MY TOOLS.
-You will read, where you then can find it.  This is because I need support for non-TCP sockets, too.
+NOTE THAT IT'S LIKELY THAT SOCKLINGER WILL BE MERGED INTO SOME OTHER
+OF MY TOOLS.  You will read, where you then can find it.  This is
+because I need support for non-TCP sockets, too.
