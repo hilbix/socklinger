@@ -14,11 +14,13 @@
 #	make
 #	mkdir -p PROXY
 #	rm -rf PROXY/head
-#	./socklinger :8081 example/proxy.sh &
+#	./socklinger 2@:8081 example/proxy.sh &
 #	tail --follow=file PROXY/LOG PROXY/MIST
 #
-#	Then tell debian to use port 8081 on the other machine to
-#	download debian packages.
+# Then tell Debian to use a proxy on port 8081 of the machine
+# where socklinger runs to download Debian packages.
+# Note that you must allow 2 parallel connects, as else
+# the Debian Installer starves at one location (bug in d-i?).
 #
 # You need a directory named PROXY where the data is written to.
 # In PROXY/LOG a log is written.
@@ -26,8 +28,8 @@
 #
 # THIS SCRIPT HAS A LOT OF BUGS:
 #
-# It has a lot of race conditions.  So never allow more than one connect
-# to this script in parallel!
+# It has a lot of race conditions.  So never allow more than one Debian
+# to download new packages via this script in parallel!
 #
 # It is only working with Debian install and apt-get.
 # You can only access mirrors in the domain debian.org.
@@ -44,14 +46,16 @@
 # machine to install has no internet connectivity, and usually I repeat
 # the install several times until I am happy with it.
 #
-# It does not check for changes on the debian mirror!  To get new files,
+# It does not check for changes on the Debian mirror!  To get new files,
 # remove the header files (rm -rf PROXY/head).
 # YOU HAVE TO DO THIS MANUALLY OR BY CRON!!!
 #
 # $Log$
-# Revision 1.1  2004-08-15 22:19:37  Administrator
-# added
+# Revision 1.2  2004-09-20 01:52:14  tino
+# Clarified, you must allow 2 proxies running in parallel.
 #
+# Revision 1.1  2004/08/15 22:19:37  Administrator
+# added
 
 cd "`dirname "$0"`/PROXY" || exit 1
 umask 002
