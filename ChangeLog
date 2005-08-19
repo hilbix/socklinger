@@ -1,3 +1,7 @@
+2005-03-15    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger): fo now specially treated if fo!=fi
+
 2004-08-16  U-KOSH\Administrator  <Administrator@KOSH>
 
 	* socklinger.c (socklinger_accept, main): prefix "count@" for

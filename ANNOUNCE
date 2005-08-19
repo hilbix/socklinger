@@ -1,1 +1,8 @@
-Clarifications on example/proxy.sh
+SUID now supported.  Now is based on tinolib.
+
+Socklinger now gives up elevated privileges (SUID) before it runs the
+script, such that you can bind to system ports.  All you need is to
+install it SUID root (and only give the users access to it who are
+allowed to wait on system ports).
+
+This version has not been tested much.

@@ -1,9 +1,9 @@
 /* $Header$
  *
  * Execute quick hack shell scripts connected to a socket.
- * This source shall be independent of others.  Therefor no tinolib.
+ * This is now based on tinolib.  Only the first version was independent.
  *
- * Copyright (C)2004 by Valentin Hilbig
+ * Copyright (C)2004-2005 by Valentin Hilbig
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,132 +20,28 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.2  2004-08-16 14:03:16  Administrator
+ * Revision 1.3  2005-08-19 04:26:39  tino
+ * release socklinger 1.3.0
+ *
+ * Revision 1.2  2004/08/16 14:03:16  Administrator
  * Support for handling more than one connection (a fixed number) in parallel
  *
  * Revision 1.1  2004/08/16 01:29:57  Administrator
  * initial add
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-
-#include <netdb.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include "tino/sock.h"
+#include "tino/privilege.h"
+#include "tino/getopt.h"
+#include "tino/proc.h"
 
 #include "socklinger_version.h"
-
-static void
-ex(const char *s)
-{
-  perror(s);
-  for (;;)
-    {
-      exit(-1);
-      abort();
-      sleep(1);
-    }
-}
-
-/* Following was taken out of my tool
- * accept-2.0.0
- * with some lines deleted
- */
-union sockaddr_gen
-   {
-     struct sockaddr	sa;
-     struct sockaddr_un	un;
-     struct sockaddr_in	in;
-  };
-
-static int
-getaddr(union sockaddr_gen *sin, const char *adr)
-{
-  char		*s, *host;
-  int		max;
-  size_t	len;
-
-  len	= strlen(adr)+1;
-  host	= alloca(len);
-  memcpy(host, adr, len);
-
-  memset(sin, 0, sizeof *sin);
-
-  for (s=host; *s; s++)
-    if (*s==':')
-      {
-	*s	= 0;
-
-	sin->in.sin_family	= AF_INET;
-	sin->in.sin_addr.s_addr	= htonl(INADDR_ANY);
-	sin->in.sin_port	= htons(atoi(s+1));
-
-	if (s!=host && !inet_aton(host, &sin->in.sin_addr))
-	  {
-	    struct hostent	*he;
-
-	    if ((he=gethostbyname(host))==0)
-	      ex(host);
-	    if (he->h_addrtype!=AF_INET || he->h_length!=sizeof sin->in.sin_addr)
-	      ex("unsupported host address");
-	    memcpy(&sin->in.sin_addr, he->h_addr, sizeof sin->in.sin_addr);
-	  }
-	return sizeof *sin;
-      }
-
-  sin->un.sun_family	= AF_UNIX;
-
-  max = strlen(host);
-  if (max > sizeof(sin->un.sun_path)-1)
-    max = sizeof(sin->un.sun_path)-1;
-  strncpy(sin->un.sun_path, host, max);
-
-  return max + sizeof sin->un.sun_family;
-}
-
-static int
-sock_tcp_listen(const char *s)
-{
-  union sockaddr_gen	sin;
-  int			on, len;
-  int			sock;
-
-  len	= getaddr(&sin, s);
-
-  sock	= socket(sin.sa.sa_family, SOCK_STREAM, 0);
-  if (sock<0)
-    ex("socket");
-
-  on = 1;
-  if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on))
-    ex("setsockopt reuse");
-
-  if (bind(sock, &sin.sa, len))
-    ex("bind");
-
-  if (listen(sock, 100))
-    ex("listen");
-
-  return sock;
-}
-/* END COPY
- */
 
 static int
 socklinger(int fi, int fo, char **argv)
 {
   struct linger         linger;
   int			on;
-  pid_t			chld;
   char			buf[BUFSIZ*10];
   int			n;
 
@@ -164,53 +60,22 @@ socklinger(int fi, int fo, char **argv)
     return 1;
 
   /* fork off the child
+   * Warning: stderr(2) stays as it is,
+   * so it might be the socket (inetd-mode)
+   * or the tty (acceptloop mode).
    */
-  if ((chld=fork())==0)
-    {
-      if (fi)
-	dup2(fi, 0);
-      if (fo!=1)
-	dup2(fo, 1);
-      if (fi!=0)
-	close(fi);
-      if (fo!=1 && fo!=fi)
-	close(fo);
-
-      /* Warning: stderr(2) stays as it is,
-       * so it might be the socket (inetd-mode)
-       * or the tty (acceptloop mode).
-       */
-      execvp(*argv, argv);
-      exit(-1);
-    }
-  if (chld==(pid_t)-1)
-    ex("fork");
-
-  /* well, this is funny
-   * no convenience here anywhere, please?
-   */
-  for (;;)
-    {
-      pid_t		pid;
-      int		status;
-
-      pid	= wait(&status);
-      if (pid==chld)
-        break;
-      if (pid!=(pid_t)-1)
-        continue;
-      if (errno!=EINTR)
-	ex("wait");
-    }
+  tino_wait_child(tino_fork_exec(fi, fo, -1, argv), -1l, NULL);
 
   /* Now the socket belongs to us, and nobody else
    * Shutdown the writing side,
    * and flush the reading side
    * until the other side closes the socket, too.
    *
-   * Thus, so the lingering.
+   * Thus, do a typical lingering.
    */
-  if (shutdown(fo, SHUT_WR))
+  if (fo!=fi)
+    close(fo);
+  if (shutdown(fi, SHUT_WR) && errno!=ENOTCONN)
     return 1;
   while ((n=read(fi, buf, sizeof buf))!=0)
     if (n<0)
@@ -235,13 +100,13 @@ socklinger_accept(int sock, char **argv)
 	{
 	  if (errno==EINTR)
 	    continue;
-	  ex("accept");
+	  tino_exit("accept");
 	}
       printf("[%05ld] run program for connection %d\n", pid, fd);
       if (socklinger(fd, fd, argv+2))
         perror("socklinger");
       if (close(fd))
-	ex("close");
+	tino_exit("close");
     }
 }
 
@@ -252,6 +117,7 @@ main(int argc, char **argv)
   long	cnt;
   char	*end;
 
+  
   if (argc<3)
     {
       fprintf(stderr, "Usage: %s [n@]-|[host]:port|unixsocket program [args...]\n"
@@ -266,15 +132,20 @@ main(int argc, char **argv)
 		"\tWait (linger) on stdin until EOF is received.\n", argv[0]);
       return 1;
     }
-  if ((cnt=strtol(argv[1],&end,0))>0 && *end=='@')
-    argv[1]	= end+1;
   if (!*argv[1] || !strcmp(argv[1],"-"))
     {
+      tino_privilege_end_elevation();
       socklinger(0, 1, argv+2);
       return 0;
     }
+  if ((cnt=strtol(argv[1],&end,0))>0 && *end=='@')
+    argv[1]	= end+1;
 
-  sock	= sock_tcp_listen(argv[1]);
+  sock	= tino_sock_tcp_listen(argv[1]);
+  /* give up effective UID
+   * against privilege escalation
+   */
+  tino_privilege_end_elevation();
   if (cnt<=1)
     socklinger_accept(sock, argv);
   else
@@ -287,8 +158,8 @@ main(int argc, char **argv)
 	  socklinger_accept(sock, argv);
       while ((pid=wait(NULL))==(pid_t)-1)
 	if (errno!=EINTR && errno!=EAGAIN)
-	  ex("main-wait");
-      ex("child came home");
+	  tino_exit("main-wait");
+      tino_exit("child came home");
     }
   return 0;
 }

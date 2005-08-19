@@ -1,0 +1,58 @@
+$Header$
+
+Known bugs:
+
+
+No real commandline
+===================
+
+Socklinger shall allow some better commandline.
+This here is far from beeing intuitive.
+
+
+The remote IP etc. is not set in the environment.
+=================================================
+
+You can tell the remote from asking the stdout.  However it would be
+more easy for shell scripts to have then ENV set.
+
+Note that stdin might be connected elsewhere!
+
+
+Missing Reader/Writer loop.
+===========================
+
+I found some problems with shutdown().
+
+When the remote uses shutdown() on a unix pipe, the stdin is not
+closed properly.  This might be due to the fact, that more than one
+process keeps open the socket.
+
+The idea now is as follows:
+
+Let socklinger handle the reading portion of the socket.  Give the
+process the writing portion of the socket on stdout.  Actively
+transport the data from the input to the process until the process
+closes down it's input.  Then do the lingering until the socket
+closess down.
+
+If the process terminates, shutdown the writing side, as it is done
+today.
+
+The process then has no chance to close down the reading side.  But
+that's exactly what socklinger is thought for, to *not* let handle the
+input to the underlying application.
+
+However, in case that the remote shuts down the output side, such that
+at socklinger the input side of the socket is closed, this can be
+easily indicated to the application by closing the pipe (or
+socketpair) to stdin.
+
+Well .. leave this to the next generation of this tool.
+
+
+-Tino
+$Log$
+Revision 1.1  2005-08-19 04:26:39  tino
+release socklinger 1.3.0
+

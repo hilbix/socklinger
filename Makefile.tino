@@ -4,23 +4,35 @@
 # See tino/Makefile.proto for description.
 #
 # $Log$
-# Revision 1.1  2004-08-16 01:29:57  Administrator
-# initial add
+# Revision 1.2  2005-08-19 04:26:39  tino
+# release socklinger 1.3.0
 #
+# Revision 1.1  2004/08/16 01:29:57  Administrator
+# initial add
 
-       PROG=socklinger
-      PROGS=$(PROG)
+      PROGS=socklinger
        OBJS=
-    LDFLAGS=
+#    SUBDIRS=diet
+#         CC=diet/tinodiet.sh --tinodiet
+#        CXX=diet/tinodiet.sh ++ --tinodiet
+#       LIBS=diet/libcurl.a diet/libssl.a diet/libcrypto.a diet/libz.a
+# If you use -I. or -Itino, be sure to use -I-, too.
+ ADD_CFLAGS=
+ADD_LDFLAGS=
+ ADD_LDLIBS=
       CLEAN=
+  CLEANDIRS=
   DISTCLEAN=
-#    LDFLAGS=-lefence
+   TINOCOPY=
 #    TINOINC=tino_common.h
 #    TINOLIB=tino/lib.h
-
-##END##
-
-HERE=$(PWD)
+#INSTALLPATH=/usr/local
+# DBG_CFLAGS=
+#DBG_LDFLAGS=
+# DBG_LDLIBS=-lefence
+# STD_CFLAGS=-g -Wall -O3
+#STD_LDFLAGS=
+# STD_LDLIBS=-lstdc++
 
 Makefile::
-	$(MAKE) -C tino tino HERE="$(HERE)"
+	$(MAKE) -C tino tino HERE="$(PWD)"
