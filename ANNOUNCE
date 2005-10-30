@@ -1,8 +1,11 @@
-SUID now supported.  Now is based on tinolib.
+Now based on tinolib.  SUID supported.  Env-vars added.
+
+The environment variables SOCKLINGER_NR and SOCKLINGER_PEER are set.
 
 Socklinger now gives up elevated privileges (SUID) before it runs the
 script, such that you can bind to system ports.  All you need is to
 install it SUID root (and only give the users access to it who are
-allowed to wait on system ports).
+allowed to wait on system ports).  But I do not recommend this,
+as it's dangerous to use SUID programs this way.
 
-This version has not been tested much.
+This version was not been tested much.

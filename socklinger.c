@@ -1,7 +1,12 @@
 /* $Header$
  *
  * Execute quick hack shell scripts connected to a socket.
- * This is now based on tinolib.  Only the first version was independent.
+ *
+ * This is now based on tinolib.  Only the first version was
+ * independent.
+ *
+ * This program now is far too complex.  Most shall be done
+ * implicitely by tinolib.
  *
  * Copyright (C)2004-2005 by Valentin Hilbig
  *
@@ -20,7 +25,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.3  2005-08-19 04:26:39  tino
+ * Revision 1.4  2005-10-30 03:24:22  tino
+ * additional possibilities
+ *
+ * Revision 1.3  2005/08/19 04:26:39  tino
  * release socklinger 1.3.0
  *
  * Revision 1.2  2004/08/16 14:03:16  Administrator
@@ -30,20 +38,29 @@
  * initial add
  */
 
+#if 0
+#define	TINO_DP_all	TINO_DP_ON
+#else
+#define TINO_DP_main	TINO_DP_OFF
+#endif
+
 #include "tino/sock.h"
 #include "tino/privilege.h"
 #include "tino/getopt.h"
 #include "tino/proc.h"
+#include "tino/str.h"
 
 #include "socklinger_version.h"
 
 static int
-socklinger(int fi, int fo, char **argv)
+socklinger(int fi, int fo, char **argv, long mypid, int nr)
 {
-  struct linger         linger;
+  struct linger		linger;
   int			on;
-  char			buf[BUFSIZ*10];
-  int			n;
+  char			buf[BUFSIZ*10], *peer;
+  int			n, status;
+  char			*env[3];
+  pid_t			pid;
 
   /* set some default socket options
    */
@@ -59,12 +76,31 @@ socklinger(int fi, int fo, char **argv)
   if (setsockopt(fo, SOL_SOCKET, SO_SNDBUF, &on, sizeof on) && fo!=1)
     return 1;
 
+  /* Prepare the environment
+   * This is a hack today, shall be done better in future
+   */
+  peer	= tino_sock_get_peername(fo);
+  if (!peer)
+    peer	= tino_sock_get_peername(fi);
+  env[0]	= tino_str_printf("SOCKLINGER_NR=%d", nr);
+  env[1]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
+  env[2]	= 0;
+  if (peer)
+    free(peer);
   /* fork off the child
    * Warning: stderr(2) stays as it is,
    * so it might be the socket (inetd-mode)
    * or the tty (acceptloop mode).
    */
-  tino_wait_child(tino_fork_exec(fi, fo, -1, argv), -1l, NULL);
+
+  printf("[%05ld-%d] run %s <%d >%d\n", mypid, nr, argv[0], fi, fo);
+  pid		= tino_fork_exec(fi, fo, 2, argv, env, 1);
+
+  /* Free environment and wait for the child
+   */
+  free(env[0]);
+  tino_wait_child(pid, -1l, &status);
+  printf("[%05ld-%d] ret %d, lingering\n", mypid, nr, status);
 
   /* Now the socket belongs to us, and nobody else
    * Shutdown the writing side,
@@ -75,17 +111,17 @@ socklinger(int fi, int fo, char **argv)
    */
   if (fo!=fi)
     close(fo);
-  if (shutdown(fi, SHUT_WR) && errno!=ENOTCONN)
+  if (shutdown(fi, SHUT_WR))
     return 1;
+
   while ((n=read(fi, buf, sizeof buf))!=0)
-    if (n<0)
-      if (errno!=EINTR && errno!=EAGAIN)
-	return 1;
+    if (errno!=EINTR && errno!=EAGAIN)
+      return 1;
   return 0;
 }
 
 static void
-socklinger_accept(int sock, char **argv)
+socklinger_accept(int sock, char **argv, int n)
 {
   long	pid;
 
@@ -94,7 +130,7 @@ socklinger_accept(int sock, char **argv)
     {
       int	fd;
 
-      printf("[%05ld] socket wait %s\n", pid, argv[1]);
+      printf("[%05ld-%d] wait %s\n", pid, n, argv[1]);
       fd	= accept(sock, NULL, NULL);
       if (fd<0)
 	{
@@ -102,14 +138,15 @@ socklinger_accept(int sock, char **argv)
 	    continue;
 	  tino_exit("accept");
 	}
-      printf("[%05ld] run program for connection %d\n", pid, fd);
-      if (socklinger(fd, fd, argv+2))
+      if (socklinger(fd, fd, argv+2, pid, n))
         perror("socklinger");
       if (close(fd))
 	tino_exit("close");
     }
 }
 
+/* It shall get a real commandline
+ */
 int
 main(int argc, char **argv)
 {
@@ -117,25 +154,26 @@ main(int argc, char **argv)
   long	cnt;
   char	*end;
 
-  
   if (argc<3)
     {
       fprintf(stderr, "Usage: %s [n@]-|[host]:port|unixsocket program [args...]\n"
-		"\tVersion " SOCKLINGER_VERSION " compiled at " __DATE__ "\n"
-		"\tYou probably need this for simple TCP shell scripts:\n"
-		"\tif - or '' is given, use stdout(!) as socket (inetd/tcpserver)\n"
-		"\telse the given socket (TCP or unix) is opened and listened on\n"
-		"\tand each connection is served by the progam (max. n in parallel):\n"
-		"\tExec program with args with stdin/stdout connected to socket\n"
-		"\tWait for program termination.\n"
-		"\tShutdown the stdout side of the socket.\n"
-		"\tWait (linger) on stdin until EOF is received.\n", argv[0]);
+	      "\tVersion " SOCKLINGER_VERSION " compiled at " __DATE__ "\n"
+	      "\tYou probably need this for simple TCP shell scripts:\n"
+	      "\tif - or '' is given, use stdout(!) as socket (inetd/tcpserver)\n"
+	      "\telse the given socket (TCP or unix) is opened and listened on\n"
+	      "\tand each connection is served by the progam (max. n in parallel):\n"
+	      "\t1) Exec program with args with stdin/stdout connected to socket\n"
+	      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
+	      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
+	      "\t2) Wait for program termination.\n"
+	      "\t3) Shutdown the stdout side of the socket.\n"
+	      "\t   Wait (linger) on stdin until EOF is received.\n", argv[0]);
       return 1;
     }
   if (!*argv[1] || !strcmp(argv[1],"-"))
     {
       tino_privilege_end_elevation();
-      socklinger(0, 1, argv+2);
+      socklinger(0, 1, argv+2, (long)getpid(), -1);
       return 0;
     }
   if ((cnt=strtol(argv[1],&end,0))>0 && *end=='@')
@@ -147,15 +185,17 @@ main(int argc, char **argv)
    */
   tino_privilege_end_elevation();
   if (cnt<=1)
-    socklinger_accept(sock, argv);
+    socklinger_accept(sock, argv, 0);
   else
     {
       int	n;
       pid_t	pid;
 
-      for (n=cnt; --n>=0; )
-	if (!fork())
-	  socklinger_accept(sock, argv);
+      for (n=cnt; n>0; n--)
+	if ((pid=fork())==0)
+	  socklinger_accept(sock, argv, n);
+	else if (pid==(pid_t)-1)
+	  tino_exit("fork");
       while ((pid=wait(NULL))==(pid_t)-1)
 	if (errno!=EINTR && errno!=EAGAIN)
 	  tino_exit("main-wait");
