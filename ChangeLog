@@ -1,3 +1,16 @@
+2006-01-25    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger_accept): HUP control added
+
+2006-01-24    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger_accept): If SYN/RST was found or
+	something similar weird happened, then accept returns "broken
+	pipe" and socklinger got an error.  Now the process relaxes a
+	little bit and retries.
+	(socklinger): whoopsie, errno was checked even if there was no
+	error ..
+
 2005-10-30    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger): improved output to screen
