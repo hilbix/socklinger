@@ -25,7 +25,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.6  2006-02-09 11:27:10  tino
+ * Revision 1.7  2006-02-09 12:53:47  tino
+ * one more close was forgotten in the main program
+ *
+ * Revision 1.6  2006/02/09 11:27:10  tino
  * output generalization and bug fixed as I forgot to
  * close the socket which accepts the connection for the forked program.
  *
@@ -242,6 +245,7 @@ main(int argc, char **argv)
 	  socklinger_accept(sock, argv, n);
 	else if (pid==(pid_t)-1)
 	  tino_exit(note_str(0, "fork"));
+      close(sock);	/* socket no more needed below	*/
       while ((pid=wait(NULL))==(pid_t)-1)
 	if (errno!=EINTR && errno!=EAGAIN)
 	  tino_exit(note_str(0, "main-wait"));

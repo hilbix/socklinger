@@ -1,6 +1,7 @@
 2006-02-09    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger): close socket on forked connection
+	(main): additional socket close here, too.
 
 2006-01-25    <tino@firebird.03.softkill.net>
 
