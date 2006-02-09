@@ -25,7 +25,11 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.5  2006-01-25 03:31:13  tino
+ * Revision 1.6  2006-02-09 11:27:10  tino
+ * output generalization and bug fixed as I forgot to
+ * close the socket which accepts the connection for the forked program.
+ *
+ * Revision 1.5  2006/01/25 03:31:13  tino
  * dist 1.3.1
  *
  * Revision 1.4  2005/10/30 03:24:22  tino
@@ -56,12 +60,41 @@
 
 #include "socklinger_version.h"
 
+static const char *
+note_str(int n, const char *s)
+{
+  static char	buf[80];
+  static long	pid;
+
+  if (!pid)
+    pid	= getpid();
+  snprintf(buf, sizeof buf, "[%d][%05ld] %s", n, pid, s);
+  return buf;
+}
+
+static void
+note(int n, const char *s, ...)
+{
+  va_list	list;
+  static long	pid;
+
+  if (!pid)
+    pid	= getpid();
+
+  printf("%s", note_str(n, ""));
+  va_start(list, s);
+  vprintf(s, list);
+  va_end(list);
+  printf("\n");
+}
+
 static int
-socklinger(int fi, int fo, char **argv, long mypid, int nr)
+socklinger(int fi, int fo, char **argv, int nr, int sock)
 {
   char	buf[BUFSIZ*10], *peer;
   int	n, status;
   char	*env[3];
+  int	keepfd[2];
   pid_t	pid;
 
   /* set some default socket options
@@ -72,9 +105,12 @@ socklinger(int fi, int fo, char **argv, long mypid, int nr)
     return 1;
 
   tino_sock_reuse(fi, 1);
+  tino_sock_keepalive(fi, 1);
   if (fi!=fo)
-    tino_sock_reuse(fo, 1);
-
+    {
+      tino_sock_reuse(fo, 1);
+      tino_sock_keepalive(fo, 1);
+    }
   /* Prepare the environment
    * This is a hack today, shall be done better in future
    */
@@ -91,17 +127,19 @@ socklinger(int fi, int fo, char **argv, long mypid, int nr)
    * so it might be the socket (inetd-mode) 
   * or the tty (acceptloop mode).
    */
+  keepfd[0]	= sock+1;	/* close from 2..sock	*/
+  keepfd[1]	= 0;
 
   tino_hup_ignore(1);
 
-  printf("[%05ld-%d] run %s <%d >%d\n", mypid, nr, argv[0], fi, fo);
-  pid		= tino_fork_exec(fi, fo, 2, argv, env, 1);
+  note(nr, "run %s", argv[0]);
+  pid		= tino_fork_exec(fi, fo, 2, argv, env, 1, keepfd);
 
   /* Free environment and wait for the child
    */
   free(env[0]);
   tino_wait_child(pid, -1l, &status);
-  printf("[%05ld-%d] ret %d, lingering\n", mypid, nr, status);
+  note(nr, "ret %d, lingering", status);
 
   tino_hup_ignore(0);
 
@@ -128,29 +166,26 @@ socklinger(int fi, int fo, char **argv, long mypid, int nr)
 static void
 socklinger_accept(int sock, char **argv, int n)
 {
-  long	pid;
-
-  pid	= getpid();
-  tino_hup_start("[%05ld-%d] HUP received", pid, n);
+  tino_hup_start(note_str(n, "HUP received"));
   for (;;)
     {
       int	fd;
 
       tino_hup_ignore(0);
-      printf("[%05ld-%d] wait %s\n", pid, n, argv[1]);
+      note(n, "wait %s", argv[1]);
       fd	= accept(sock, NULL, NULL);
       if (fd<0)
 	{
 	  if (errno==EINTR)
 	    continue;
-	  perror("accept");
+	  perror(note_str(n, "accept"));
 	  sleep(1);
 	  continue;
 	}
-      else if (socklinger(fd, fd, argv+2, pid, n))
-        perror("socklinger");
+      else if (socklinger(fd, fd, argv+2, n, sock))
+        perror(note_str(n, "socklinger"));
       if (close(fd))
-	tino_exit("close");
+	tino_exit(note_str(n, "close"));
     }
 }
 
@@ -183,7 +218,7 @@ main(int argc, char **argv)
   if (!*argv[1] || !strcmp(argv[1],"-"))
     {
       tino_privilege_end_elevation();
-      socklinger(0, 1, argv+2, (long)getpid(), -1);
+      socklinger(0, 1, argv+2, -1, -1);
       return 0;
     }
   if ((cnt=strtol(argv[1],&end,0))>0 && *end=='@')
@@ -206,11 +241,11 @@ main(int argc, char **argv)
 	if ((pid=fork())==0)
 	  socklinger_accept(sock, argv, n);
 	else if (pid==(pid_t)-1)
-	  tino_exit("fork");
+	  tino_exit(note_str(0, "fork"));
       while ((pid=wait(NULL))==(pid_t)-1)
 	if (errno!=EINTR && errno!=EAGAIN)
-	  tino_exit("main-wait");
-      tino_exit("child came home");
+	  tino_exit(note_str(0, "main-wait"));
+      tino_exit(note_str(0, "child came home"));
     }
   return 0;
 }

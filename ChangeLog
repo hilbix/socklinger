@@ -1,3 +1,7 @@
+2006-02-09    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger): close socket on forked connection
+
 2006-01-25    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger_accept): HUP control added

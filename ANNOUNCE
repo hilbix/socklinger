@@ -1,14 +1,8 @@
-bugfix release and some improvements
+Bugfix release and output improvement
 
-You can give it a HUP to gracefully abort.  This means, it exits the
-accept()-loop if it's waiting, but it's not going away until
-application returns.
+Now the open socket is closed for the forked program.
+(It was not intended to stay open.)
 
-accept() can return an error if everything is OK.  In this case
-socklinger broke.
+Also the diagnostic output is somewhat more generalized.
 
-Also I tried to resolve the SO_REUSEADDR problem, where you cannot
-restart socklinger when there still is one running.  However, it still
-does not work.
-
-This version was not been tested much.
+This version is nearly untested as always.
