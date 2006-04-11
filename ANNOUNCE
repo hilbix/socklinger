@@ -1,8 +1,6 @@
-Bugfix release and output improvement
+No improvements, only current version of tinolib included.
 
-Now the open socket is closed for the forked program.
-(It was not intended to stay open.)
+This version is untested.
 
-Also the diagnostic output is somewhat more generalized.
-
-This version is nearly untested as always.
+If you have any trouble with this version,
+try the previous one, it's successfully used for some time now.
