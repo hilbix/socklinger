@@ -25,7 +25,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.7  2006-02-09 12:53:47  tino
+ * Revision 1.8  2006-12-12 10:36:42  tino
+ * See ChangeLog
+ *
+ * Revision 1.7  2006/02/09 12:53:47  tino
  * one more close was forgotten in the main program
  *
  * Revision 1.6  2006/02/09 11:27:10  tino
@@ -94,9 +97,9 @@ note(int n, const char *s, ...)
 static int
 socklinger(int fi, int fo, char **argv, int nr, int sock)
 {
-  char	buf[BUFSIZ*10], *peer;
-  int	n, status;
-  char	*env[3];
+  char	buf[BUFSIZ*10], *peer, *name;
+  int	n;
+  char	*env[4], *cause;
   int	keepfd[2];
   pid_t	pid;
 
@@ -120,9 +123,15 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
   peer	= tino_sock_get_peername(fi);
   if (!peer)
     peer	= tino_sock_get_peername(fo);
+  name	= tino_sock_get_sockname(fi);
+  if (!name)
+    name	= tino_sock_get_sockname(fo);
   env[0]	= tino_str_printf("SOCKLINGER_NR=%d", nr);
   env[1]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
-  env[2]	= 0;
+  env[2]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
+  env[3]	= 0;
+  if (name)
+    free(name);
   if (peer)
     free(peer);
   /* fork off the child
@@ -140,9 +149,13 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
 
   /* Free environment and wait for the child
    */
+  free(env[2]);
+  free(env[1]);
   free(env[0]);
-  tino_wait_child(pid, -1l, &status);
-  note(nr, "ret %d, lingering", status);
+
+  tino_wait_child_exact(pid, &cause);
+  note(nr, "%s, lingering", cause);
+  free(cause);
 
   tino_hup_ignore(0);
 

@@ -1,6 +1,17 @@
-No improvements, only current version of tinolib included.
+Additional environment variable and Portcullis script.
 
-This version is untested.
+Now socklinger sets SOCKLINGER_SOCK to the socketname (from commandline).
+The child's return status is processed and printed correctly now.
 
-If you have any trouble with this version,
-try the previous one, it's successfully used for some time now.
+Also there is now the Portcullis script in example.sh which can be
+used to protect system services against intruders.  It's very simple:
+
+Just start it with a password script and a service to invoke.
+For example:
+<pre>
+/usr/local/bin/socklinger 10@:23 /usr/local/sbin/portcullis.sh '[ .127.0.0.1 = ".$IP" ] || echo Password' /usr/sbin/sshd -i
+</pre>
+
+This invokes sshd on the telnet port in case the connection is from localhost.
+If you are from another host, you first must telnet in and enter the password
+(which here is 'Password' for obvious reasons).
