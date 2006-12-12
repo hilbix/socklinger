@@ -1,11 +1,24 @@
 2006-12-12    <tino@firebird.03.softkill.net>
 
+	* BUGS: updated
+
 	* diet: Softlink deleted, no "make static"
 
 	* Makefile.tino: re-created with tino/setuptino.sh
 
 	* example/portcullis.sh: completed (hopefully)
 
+2006-09-16  U-KOSH\Administrator  <Administrator@KOSH>
+
+	* socklinger.c (main): bugfix: if @ was missing (like in IPs), cnt
+	was set.
+
+2006-09-08  U-KOSH\Administrator  <Administrator@KOSH>
+
+	* socklinger.c (socklinger_prefork, socklinger_postfork): added as
+	CygWin fix.  Change usage such, that '-n@' gives alternate fork
+	method and '>' creates the connect variant.
+	
 2006-06-17    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger): SOCKLINGER_SOCK added to environment

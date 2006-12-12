@@ -1,17 +1,15 @@
-Additional environment variable and Portcullis script.
+Bugfix, alternate fork method (fix for CygWin) and connect method.
 
-Now socklinger sets SOCKLINGER_SOCK to the socketname (from commandline).
-The child's return status is processed and printed correctly now.
+This version is only tested a little bit.
 
-Also there is now the Portcullis script in example.sh which can be
-used to protect system services against intruders.  It's very simple:
+Preforking does not work under CygWin.  So fork on demand is implemented
+now, too.  If you give a negative fork count, you can use this method under
+Unix as well.
 
-Just start it with a password script and a service to invoke.
-For example:
-<pre>
-/usr/local/bin/socklinger 10@:23 /usr/local/sbin/portcullis.sh '[ .127.0.0.1 = ".$IP" ] || echo Password' /usr/sbin/sshd -i
-</pre>
+Additionally a "connect" method now is implemented, such that you can run a
+script after connecting to the destination.  The syntax is
+"source>destination" where source can be empty which does not bind to a specific interface.
+If you give no @ only a single connect is done.  Else the connects are done in loops
+(according to preforking or postforking based on the number given).
 
-This invokes sshd on the telnet port in case the connection is from localhost.
-If you are from another host, you first must telnet in and enter the password
-(which here is 'Password' for obvious reasons).
+There is no good connect timeout yet.  However system connect timeout shall be there anyway.
