@@ -2,13 +2,11 @@
  *
  * Execute quick hack shell scripts connected to a socket.
  *
- * This is now based on tinolib.  Only the first version was
- * independent.
- *
  * This program now is far too complex.  Most shall be done
- * implicitely by tinolib.
+ * implicitely by tinolib.  And it is far too much hacked, so it needs
+ * a rewrite.
  *
- * Copyright (C)2004-2005 by Valentin Hilbig
+ * Copyright (C)2004-2007 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.9  2006-12-12 11:52:17  tino
+ * Revision 1.10  2007-03-26 23:51:29  tino
+ * Intermediate checkin: Moved to new CONF instead of function args
+ *
+ * Revision 1.9  2006/12/12 11:52:17  tino
  * New version with editing in the old edits to do prefork and connect
  *
  * Revision 1.8  2006/12/12 10:36:42  tino
@@ -69,28 +70,44 @@
 
 #include "socklinger_version.h"
 
-static const char *
-note_str(int n, const char *s)
-{
-  static char	buf[80];
-  static long	pid;
+#undef CONF
+#define	CONF	struct socklinger_conf *conf
 
-  if (!pid)
-    pid	= getpid();
-  snprintf(buf, sizeof buf, "[%d][%05ld] %s", n, pid, s);
-  return buf;
+struct socklinger_conf
+  {
+    /* Work area
+     */
+    int		sock;		/* Running socket	*/
+    int		nr;		/* Running number	*/
+
+    /* Settings
+     */
+    char	*address;	/* Socket argument (listen address or connect address)	*/
+    char	*connect;	/* NULL: accept(); else: connect.  If nonempty: bind arg	*/
+    char	**argv;		/* program argument list: program [args]	*/
+    int		count;		/* Max number of accepts, connects etc.	*/
+
+    /* Helpers
+     */
+    long	pid;
+    char	note_buf[80];
+  };
+
+static const char *
+note_str(CONF, const char *s)
+{
+  if (!conf->pid)
+    conf->pid	= getpid();
+  snprintf(conf->note_buf, sizeof conf->note_buf, "[%d][%05ld] %s", conf->nr, conf->pid, s);
+  return conf->note_buf;
 }
 
 static void
-note(int n, const char *s, ...)
+note(CONF, const char *s, ...)
 {
   va_list	list;
-  static long	pid;
 
-  if (!pid)
-    pid	= getpid();
-
-  printf("%s", note_str(n, ""));
+  printf("%s", note_str(conf, ""));
   va_start(list, s);
   vprintf(s, list);
   va_end(list);
@@ -98,7 +115,7 @@ note(int n, const char *s, ...)
 }
 
 static int
-socklinger(int fi, int fo, char **argv, int nr, int sock)
+socklinger(CONF, int fi, int fo)
 {
   char	buf[BUFSIZ*10], *peer, *name;
   int	n;
@@ -129,7 +146,7 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
   name	= tino_sock_get_sockname(fi);
   if (!name)
     name	= tino_sock_get_sockname(fo);
-  env[0]	= tino_str_printf("SOCKLINGER_NR=%d", nr);
+  env[0]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
   env[1]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
   env[2]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
   env[3]	= 0;
@@ -142,13 +159,13 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
    * so it might be the socket (inetd-mode) 
   * or the tty (acceptloop mode).
    */
-  keepfd[0]	= sock+1;	/* close from 2..sock	*/
+  keepfd[0]	= conf->sock+1;	/* close from 2..sock	*/
   keepfd[1]	= 0;
 
   tino_hup_ignore(1);
 
-  note(nr, "run %s", argv[0]);
-  pid		= tino_fork_exec(fi, fo, 2, argv, env, 1, keepfd);
+  note(conf, "run %s", conf->argv[0]);
+  pid		= tino_fork_exec(fi, fo, 2, conf->argv, env, 1, keepfd);
 
   /* Free environment and wait for the child
    */
@@ -157,7 +174,7 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
   free(env[0]);
 
   tino_wait_child_exact(pid, &cause);
-  note(nr, "%s, lingering", cause);
+  note(conf, "%s, lingering", cause);
   free(cause);
 
   tino_hup_ignore(0);
@@ -183,14 +200,14 @@ socklinger(int fi, int fo, char **argv, int nr, int sock)
 }
 
 static int
-socklinger_dosock(int n, int sock, char *connect, char **argv)
+socklinger_dosock(CONF)
 {
   int	fd;
 
-  if (connect)
+  if (conf->connect)
     {
-      note(n, *connect ? "connect %s as %s" : "connect %s", argv[1], connect);
-      fd	= tino_sock_tcp_connect(argv[1], *connect ? connect : NULL);
+      note(conf, (*conf->connect ? "connect %s as %s" : "connect %s"), conf->address, conf->connect);
+      fd	= tino_sock_tcp_connect(conf->address, *conf->connect ? conf->connect : NULL);
       /* As the connect may bind to privilege ports
        * end the privilege eleveation here
        */
@@ -198,46 +215,49 @@ socklinger_dosock(int n, int sock, char *connect, char **argv)
     }
   else
     {
-      note(n, "accept %s", argv[1]);
-      fd	= accept(sock, NULL, NULL);
+      note(conf, "accept %s", conf->address);
+      fd	= accept(conf->sock, NULL, NULL);
     }
   if (fd<0)
     {
       if (errno!=EINTR)
-	perror(note_str(0, connect ? "connect" : "accept"));
+	perror(note_str(conf, conf->connect ? "connect" : "accept"));
       sleep(1);
     }
   return fd;
 }
 
 static void
-socklinger_run(int sock, char *connect, char **argv, int n)
+socklinger_run(CONF)
 {
-  tino_hup_start(note_str(n, "HUP received"));
+  tino_hup_start(note_str(conf, "HUP received"));
   for (;;)
     {
       int	fd;
 
       tino_hup_ignore(0);
-      fd	= socklinger_dosock(n, sock, connect, argv);
+      fd	= socklinger_dosock(conf);
       if (fd<0)
 	continue;
-      if (socklinger(fd, fd, argv+2, n, sock))
-        perror(note_str(n, "socklinger"));
+      if (socklinger(conf, fd, fd))
+        perror(note_str(conf, "socklinger"));
       if (close(fd))
-	tino_exit(note_str(n, "close"));
+	tino_exit(note_str(conf, "close"));
     }
 }
 
 static void
-socklinger_postfork(int sock, char *connect, char **argv, int cnt)
+socklinger_postfork(CONF)
 {
   int	n;
   pid_t	*pids;
 
+  if (conf->count<0)
+    conf->count	= -conf->count;
+
   000;	/* missing: if parent dies, send something like HUP to all childs	*/
 
-  pids	= tino_alloc0(cnt * sizeof *pids);
+  pids	= tino_alloc0(conf->count * sizeof *pids);
 
   tino_hup_start(note_str(0, "HUP received"));
   for (;;)
@@ -245,47 +265,52 @@ socklinger_postfork(int sock, char *connect, char **argv, int cnt)
       int	fd, status;
       pid_t	pid;
 
-      tino_hup_ignore(0);
-      for (n=0; n<cnt && pids[n]; n++);
+      conf->nr	= 0;
 
-      if (n>=cnt)
+      tino_hup_ignore(0);
+      for (n=0; n<conf->count && pids[n]; n++);
+
+      if (n>=conf->count)
 	note(0, "wait for childs");
-      pid	= waitpid((pid_t)-1, &status, (n<cnt ? WNOHANG : 0));
+      pid	= waitpid((pid_t)-1, &status, (n<conf->count ? WNOHANG : 0));
       if (pid==(pid_t)-1)
 	{
 	  if (errno!=EINTR && errno!=EAGAIN && errno!=ECHILD)
-	    tino_exit(note_str(0, "postfork"));
+	    tino_exit(note_str(conf, "postfork"));
 	}
       else if (pid)
 	{
-	  for (n=0; n<cnt; n++)
+	  for (n=0; n<conf->count; n++)
 	    if (pid==pids[n])
 	      {
 		char	*cause;
 
 		pids[n]	= 0;
 		cause	= tino_wait_child_status_string(status, NULL);
-		note(n, "child %ul %s", (unsigned long)pid, cause);
+		note(conf, "child %ul %s", (unsigned long)pid, cause);
 		free(cause);
 	      }
 	  continue;
 	}
-      fd	= socklinger_dosock(n, sock, connect, argv);
+      conf->nr	= n;
+      fd	= socklinger_dosock(conf);
       if (fd<0)
 	continue;
       if ((pid=fork())==0)
 	{
-	  if (sock>=0)
-	    close(sock);
-	  if (socklinger(fd, fd, argv+2, n, sock))
-	    perror(note_str(n, "socklinger"));
+	  /* conf->n already set	*/
+	  if (conf->sock>=0)
+	    close(conf->sock);
+	  /* keep conf->sock for close() action above	*/
+	  if (socklinger(conf, fd, fd))
+	    perror(note_str(conf, "socklinger"));
 	  if (close(fd))
-	    tino_exit(note_str(n, "close"));
+	    tino_exit(note_str(conf, "close"));
 	  exit(0);
 	}
       if (pid==(pid_t)-1)
 	{
-	  perror(note_str(n, "fork"));
+	  perror(note_str(conf, "fork"));
 	  continue;
 	}
       close(fd);
@@ -294,24 +319,30 @@ socklinger_postfork(int sock, char *connect, char **argv, int cnt)
 }
 
 static void
-socklinger_prefork(int sock, char *connect, char **argv, int cnt)
+socklinger_prefork(CONF)
 {
   int	n;
   pid_t	pid;
 
   000;	/* missing: if parent dies, send something like HUP to all childs	*/
 
-  for (n=cnt; n>0; n--)
+  for (n=conf->count; n>0; n--)
     if ((pid=fork())==0)
-      socklinger_run(sock, connect, argv, n);
+      {
+	conf->nr	= n;
+	socklinger_run(conf);
+      }
     else if (pid==(pid_t)-1)
-      tino_exit(note_str(0, "fork"));
+      {
+	conf->nr	= n;	/* report child number	*/
+	tino_exit(note_str(conf, "fork"));
+      }
 
-  close(sock);	/* socket no more needed now	*/
+  close(conf->sock);	/* socket no more needed now	*/
 
   while ((pid=wait(NULL))==(pid_t)-1)
     if (errno!=EINTR && errno!=EAGAIN)
-      tino_exit(note_str(0, "main-wait"));
+      tino_exit(note_str(conf, "main-wait"));
 }
 
 /* It shall get a real commandline
@@ -321,14 +352,14 @@ socklinger_prefork(int sock, char *connect, char **argv, int cnt)
 int
 main(int argc, char **argv)
 {
-  int	sock;
-  long	cnt;
-  char	*end, *connect;
+  static struct socklinger_conf	config;	/* may be big and must be preset 0	*/
+  CONF				= &config;
+  char				*end;
+  int				argn;
 
-  if (argc<3)
-    {
-      fprintf(stderr, "Usage: %s [n@[src>]][host]:port|[n@[>]]unixsocket|- program [args...]\n"
-	      "\t\tVersion " SOCKLINGER_VERSION " compiled at " __DATE__ "\n"
+  argn	= tino_getopt(argc, argv, 2, 0,
+		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
+		      " [n@[src>]][host]:port|[n@[>]]unixsocket|- program [args...]\n"
 	      "\tYou probably need this for simple TCP shell scripts:\n"
 	      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
 	      "\telse the given socket (TCP or unix) is opened and listened on\n"
@@ -344,42 +375,52 @@ main(int argc, char **argv)
 	      "\tn<0 alternate fork method (default for CygWin).\n"
 	      "\t> does a connect instead of listen/accept.  This loops if n given.\n"
 	      "\tsrc, if given, is the address to bind to for connects.\n"
-	      , argv[0]);
-      return 1;
-    }
-  if (!*argv[1] || !strcmp(argv[1],"-"))
+
+		      TINO_GETOPT_USAGE
+		      "h	This help"
+		      ,
+
+		      NULL);
+
+  if (argn<=0)
+    return 1;
+
+  conf->address	= argv[argn];
+  conf->argv	= argv+argn+1;
+  conf->sock	= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
+  conf->nr	= -1;
+
+  if (!*conf->address || !strcmp(conf->address,"-"))
     {
       tino_privilege_end_elevation();
-      if (socklinger(0, 1, argv+2, -1, -1))
+      if (socklinger(conf, 0, 1))
 	{
-	  perror(note_str(-1, "socklinger"));
+	  perror(note_str(conf, "socklinger"));
 	  return 2;
 	}
       return 0;
     }
 
-  cnt		= strtol(argv[1],&end,0);
+  conf->count	= strtol(conf->address,&end,0);
   if (*end=='@')
-    argv[1]	= end+1;
+    conf->address	= end+1;
   else
-    cnt	= 0;
+    conf->count	= 0;
 
-  connect	= 0;
-  sock		= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
-  if ((end=strchr(argv[1],'>'))!=0)
+  /* conf->sock	= -1;	already done above	*/
+  if ((end=strchr(conf->address,'>'))!=0)
     {
-      connect	= argv[1];
-      *end++	= 0;
-      argv[1]	= end;
+      conf->connect	= conf->address;
+      *end++		= 0;
+      conf->address	= end;
 
-      /* This is ugly and a hack
-       *
-       * I shall rewrite this with OO
+      /* Still ugly and shall be more OO like
+       * conf->sock is -1
        */
     }
   else
     {
-      sock	= tino_sock_tcp_listen(argv[1]);
+      conf->sock	= tino_sock_tcp_listen(conf->address);
 
       /* give up effective UID
        * against privilege escalation
@@ -387,34 +428,39 @@ main(int argc, char **argv)
       tino_privilege_end_elevation();
    }
 
-  if (!cnt)
+  if (!conf->count)
     {
-      if (connect)
+      conf->nr	= 0;
+
+      if (conf->connect)
 	{
+	  int	fd;
+
 	  /* Just do a single connect
 	   */
-	  sock	= socklinger_dosock(0, -1, connect, argv);
-	  if (sock<0)
+	  fd	= socklinger_dosock(conf);
+	  if (fd<0)
 	    return 3;
-	  if (socklinger(sock, sock, argv+2, 0, -1))
+	  if (socklinger(conf, fd, fd))
 	    {
-	      perror(note_str(0, "socklinger"));
+	      perror(note_str(conf, "socklinger"));
 	      return 2;
 	    }
 	  return 0;
 	}
-      socklinger_run(sock, connect, argv, 0);
+      socklinger_run(conf);
       return 0;
     }
 #ifdef __CYGWIN__
-  if (!connect && cnt>0)
-    cnt	= -cnt;
+  if (!conf->connect && conf->count>0)
+    conf->count	= -conf->count;
 #endif
 
-  if (cnt<0)
-    socklinger_postfork(sock, connect, argv, -cnt);
+  if (conf->count<0)
+    socklinger_postfork(conf);
   else
-    socklinger_prefork(sock, connect, argv, cnt);
-  tino_exit(note_str(0, "child came home"));
+    socklinger_prefork(conf);
+
+  tino_exit(note_str(conf, "child came home"));
   return 0;
 }

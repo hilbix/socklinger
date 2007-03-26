@@ -1,15 +1,4 @@
-Bugfix, alternate fork method (fix for CygWin) and connect method.
+Version with options.
 
-This version is only tested a little bit.
-
-Preforking does not work under CygWin.  So fork on demand is implemented
-now, too.  If you give a negative fork count, you can use this method under
-Unix as well.
-
-Additionally a "connect" method now is implemented, such that you can run a
-script after connecting to the destination.  The syntax is
-"source>destination" where source can be empty which does not bind to a specific interface.
-If you give no @ only a single connect is done.  Else the connects are done in loops
-(according to preforking or postforking based on the number given).
-
-There is no good connect timeout yet.  However system connect timeout shall be there anyway.
+This slowly now moves to commandline arguments.  Old commandline still
+is supported.
