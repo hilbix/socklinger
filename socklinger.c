@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.10  2007-03-26 23:51:29  tino
+ * Revision 1.11  2007-03-27 01:13:03  tino
+ * New intermediate version.  Shall work, but untested
+ *
+ * Revision 1.10  2007/03/26 23:51:29  tino
  * Intermediate checkin: Moved to new CONF instead of function args
  *
  * Revision 1.9  2006/12/12 11:52:17  tino
@@ -86,6 +89,7 @@ struct socklinger_conf
     char	*connect;	/* NULL: accept(); else: connect.  If nonempty: bind arg	*/
     char	**argv;		/* program argument list: program [args]	*/
     int		count;		/* Max number of accepts, connects etc.	*/
+    int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
 
     /* Helpers
      */
@@ -227,23 +231,20 @@ socklinger_dosock(CONF)
   return fd;
 }
 
-static void
+static int
 socklinger_run(CONF)
 {
-  tino_hup_start(note_str(conf, "HUP received"));
-  for (;;)
-    {
-      int	fd;
+  int	fd;
 
-      tino_hup_ignore(0);
-      fd	= socklinger_dosock(conf);
-      if (fd<0)
-	continue;
-      if (socklinger(conf, fd, fd))
-        perror(note_str(conf, "socklinger"));
-      if (close(fd))
-	tino_exit(note_str(conf, "close"));
-    }
+  tino_hup_ignore(0);
+  fd	= socklinger_dosock(conf);
+  if (fd<0)
+    return 1;
+  if (socklinger(conf, fd, fd))
+    perror(note_str(conf, "socklinger"));
+  if (close(fd))
+    tino_exit(note_str(conf, "close"));
+  return 0;
 }
 
 static void
@@ -259,7 +260,7 @@ socklinger_postfork(CONF)
 
   pids	= tino_alloc0(conf->count * sizeof *pids);
 
-  tino_hup_start(note_str(0, "HUP received"));
+  tino_hup_start(note_str(conf, "HUP received"));
   for (;;)
     {
       int	fd, status;
@@ -271,7 +272,7 @@ socklinger_postfork(CONF)
       for (n=0; n<conf->count && pids[n]; n++);
 
       if (n>=conf->count)
-	note(0, "wait for childs");
+	note(conf, "wait for childs");
       pid	= waitpid((pid_t)-1, &status, (n<conf->count ? WNOHANG : 0));
       if (pid==(pid_t)-1)
 	{
@@ -330,7 +331,9 @@ socklinger_prefork(CONF)
     if ((pid=fork())==0)
       {
 	conf->nr	= n;
-	socklinger_run(conf);
+	tino_hup_start(note_str(conf, "HUP received"));
+	for (;;)
+	  socklinger_run(conf);
       }
     else if (pid==(pid_t)-1)
       {
@@ -343,6 +346,103 @@ socklinger_prefork(CONF)
   while ((pid=wait(NULL))==(pid_t)-1)
     if (errno!=EINTR && errno!=EAGAIN)
       tino_exit(note_str(conf, "main-wait"));
+
+  tino_exit(note_str(conf, "child came home"));
+}
+
+static void
+process_args(CONF, int argc, char **argv)
+{
+  int	argn, flag_connect;
+  char	*end;
+
+  argn	= tino_getopt(argc, argv, 2, 0,
+		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
+		      " [host]:port|unixsocket|- program [args...]\n"
+	      "\tYou probably need this for simple TCP shell scripts:\n"
+	      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
+	      "\telse the given socket (TCP or unix) is opened and listened on\n"
+	      "\tand each connection is served by the progam (max. N in parallel):\n"
+	      "\t1) Exec program with args with stdin/stdout connected to socket\n"
+	      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
+	      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
+	      "\t   env var SOCKLINGER_SOCK is set to the socket arg\n"
+	      "\t2) Wait for program termination.\n"
+	      "\t3) Shutdown the stdout side of the socket.\n"
+	      "\t   Wait (linger) on stdin until EOF is received."
+		      ,
+
+		      TINO_GETOPT_USAGE
+		      "h	This help"
+		      ,
+
+		      TINO_GETOPT_STRING
+		      "b	bind to address for connect, implies option -c"
+		      , &conf->connect,
+
+		      TINO_GETOPT_FLAG
+		      "c	use connect instead of accept"
+		      , &flag_connect,
+
+		      TINO_GETOPT_INT
+		      "n N	number of parallel connections to serve\n"
+		      "		if missing or 0 socklinger does 1 connect without loop\n"
+		      "		else preforking (N>0) or postforking (N<0) is done.\n"
+		      "		Under CygWin preforking is not available for accept mode"
+		      , &conf->count,
+
+		      TINO_GETOPT_FLAG
+		      "s	suppress old style address prefix [n@[[src]>]\n"
+		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
+		      "		For N=0 only a single accept is done (else it loops!)."
+		      , &conf->flag_newstyle,
+
+		      NULL);
+
+  if (argn<=0)
+    exit(1);
+
+  conf->address	= argv[argn];
+  conf->argv	= argv+argn+1;
+  conf->sock	= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
+  conf->nr	= -1;
+
+  if (flag_connect && !conf->connect)
+    conf->connect	= "";
+
+  if (!*conf->address || !strcmp(conf->address,"-"))
+    {
+      /* Check for sane option values?
+       */
+      conf->address	= 0;
+      return;
+    }
+
+  if (conf->count || conf->connect)
+    conf->flag_newstyle	= 1;
+
+  if (conf->flag_newstyle)
+    {
+      /* Check for sane option values?
+       */
+      conf->count	= strtol(conf->address,&end,0);
+      if (*end=='@')
+	conf->address	= end+1;
+      else
+	conf->count	= 0;
+
+      /* conf->sock	= -1;	already done above	*/
+      if ((end=strchr(conf->address,'>'))!=0)
+	{
+	  conf->connect	= conf->address;
+	  *end++	= 0;
+	  conf->address	= end;
+
+	  /* Still ugly and shall be more OO like
+	   * conf->sock is -1
+	   */
+	}
+    }
 }
 
 /* It shall get a real commandline
@@ -353,44 +453,13 @@ int
 main(int argc, char **argv)
 {
   static struct socklinger_conf	config;	/* may be big and must be preset 0	*/
-  CONF				= &config;
-  char				*end;
-  int				argn;
+  CONF	= &config;
 
-  argn	= tino_getopt(argc, argv, 2, 0,
-		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
-		      " [n@[src>]][host]:port|[n@[>]]unixsocket|- program [args...]\n"
-	      "\tYou probably need this for simple TCP shell scripts:\n"
-	      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
-	      "\telse the given socket (TCP or unix) is opened and listened on\n"
-	      "\tand each connection is served by the progam (max. n in parallel):\n"
-	      "\t1) Exec program with args with stdin/stdout connected to socket\n"
-	      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
-	      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
-	      "\t   env var SOCKLINGER_SOCK is set to the socket arg\n"
-	      "\t2) Wait for program termination.\n"
-	      "\t3) Shutdown the stdout side of the socket.\n"
-	      "\t   Wait (linger) on stdin until EOF is received.\n"
-	      "Specials:\n"
-	      "\tn<0 alternate fork method (default for CygWin).\n"
-	      "\t> does a connect instead of listen/accept.  This loops if n given.\n"
-	      "\tsrc, if given, is the address to bind to for connects.\n"
+  process_args(conf, argc, argv);
 
-		      TINO_GETOPT_USAGE
-		      "h	This help"
-		      ,
-
-		      NULL);
-
-  if (argn<=0)
-    return 1;
-
-  conf->address	= argv[argn];
-  conf->argv	= argv+argn+1;
-  conf->sock	= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
-  conf->nr	= -1;
-
-  if (!*conf->address || !strcmp(conf->address,"-"))
+  /* Cnnection comes from stdin/stdout:
+   */
+  if (!conf->address)
     {
       tino_privilege_end_elevation();
       if (socklinger(conf, 0, 1))
@@ -401,24 +470,7 @@ main(int argc, char **argv)
       return 0;
     }
 
-  conf->count	= strtol(conf->address,&end,0);
-  if (*end=='@')
-    conf->address	= end+1;
-  else
-    conf->count	= 0;
-
-  /* conf->sock	= -1;	already done above	*/
-  if ((end=strchr(conf->address,'>'))!=0)
-    {
-      conf->connect	= conf->address;
-      *end++		= 0;
-      conf->address	= end;
-
-      /* Still ugly and shall be more OO like
-       * conf->sock is -1
-       */
-    }
-  else
+  if (!conf->connect)
     {
       conf->sock	= tino_sock_tcp_listen(conf->address);
 
@@ -426,41 +478,51 @@ main(int argc, char **argv)
        * against privilege escalation
        */
       tino_privilege_end_elevation();
+
+#ifdef __CYGWIN__
+      /* Under CygWin preforking isn't possible as it is impossible to
+       * do an accept() on the same socket from within different
+       * processes
+       */
+      if (conf->count>0)
+	conf->count	= -conf->count;
+#endif
    }
 
-  if (!conf->count)
-    {
-      conf->nr	= 0;
+  conf->nr	= 0;
 
-      if (conf->connect)
-	{
-	  int	fd;
-
-	  /* Just do a single connect
-	   */
-	  fd	= socklinger_dosock(conf);
-	  if (fd<0)
-	    return 3;
-	  if (socklinger(conf, fd, fd))
-	    {
-	      perror(note_str(conf, "socklinger"));
-	      return 2;
-	    }
-	  return 0;
-	}
-      socklinger_run(conf);
-      return 0;
-    }
-#ifdef __CYGWIN__
-  if (!conf->connect && conf->count>0)
-    conf->count	= -conf->count;
-#endif
+  /* I am not completely satisfied with following solution:
+   *
+   * This shall somehow magically be combined into one single thing.
+   */
 
   if (conf->count<0)
     socklinger_postfork(conf);
-  else
+  else if (conf->count>0)
     socklinger_prefork(conf);
+  else if (conf->connect)
+    {
+      int	fd;
 
-  tino_exit(note_str(conf, "child came home"));
+      /* Just do a single connect
+       */
+      fd	= socklinger_dosock(conf);
+      if (fd<0)
+	return 3;
+      if (socklinger(conf, fd, fd))
+	{
+	  perror(note_str(conf, "socklinger"));
+	  return 2;
+	}
+    }
+  else
+    {
+      /* For old style we do a loop, for new style, only a single
+       * accept() is done.  However repeat the accept() if accept
+       * returns an error (there are spurious connects out there).
+       */
+      tino_hup_start(note_str(conf, "HUP received"));
+      while (socklinger_run(conf) || !conf->flag_newstyle);
+    }
   return 0;
 }
