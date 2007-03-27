@@ -2,7 +2,10 @@ Execute quick hack shell scripts connected to a socket.
 # $Header$
 # 
 # $Log$
-# Revision 1.5  2006-12-12 11:52:17  tino
+# Revision 1.6  2007-03-27 01:13:12  tino
+# Prepared for new dist
+#
+# Revision 1.5  2006/12/12 11:52:17  tino
 # New version with editing in the old edits to do prefork and connect
 #
 # Revision 1.4  2006/01/25 03:31:13  tino
@@ -17,10 +20,15 @@ Execute quick hack shell scripts connected to a socket.
 # Revision 1.1  2004/08/16 01:29:57  Administrator
 # initial add
 
+If you look for something of more wide use perhaps have a look
+at <a href='http://freshmeat.net/projects/socat'>socat</a> (this
+is from somebody else, don't ask me about socat, however I highly
+recommend socat if you are not satisfied with socklinger!).
+
 Socklinger is thought for admins in a networked environment, who want
 to write some quick hack bash scripts to rapidly implement a socket
 based thingie just to get something done and reuse this solution for
-themself later on, too.  Socklinger definitievely is not designed to
+themself later on, too.  Socklinger definitively is not designed to
 offer a production service to customers.  But it's just what *you*
 need to get *your* weird network script running for *your* needs,
 saving *your* time.
@@ -44,7 +52,8 @@ observe the linger-problem there.  Often you can fix the problem by
 adding a "sleep 10" at the end of the script.  However the hope that
 10 seconds are long enough is no solution in my eyes.  And often the
 sleep period slows down the other side, because the othere side waits
-until the socket is closed.
+until the socket is closed. (Any software which relies on the kernel
+linger implementation may fall into the same trap as tcpserver.)
 
 Socklinger is designed as a solution for quick hacks, so it's enough
 to only run one script in parallel.  This way you don't have to bother
@@ -54,26 +63,34 @@ accept-loop.
 
 The source code of socklinger is so easy and lightweight that it can
 be adapted to other environments easily.  It has been tested under
-several Linux distributions and Cygwin.
+several Linux distributions and Cygwin. (Well, not each version!)
 
-There is an example debian installation proxy which caches all files
+There is an example Debian installation proxy which caches all files
 downloaded in example/ .  All you need is some machine with an
 Internet connection (probably a windows with Cygwin installed) and you
 can use the network install ISO image for your Debian.  Please note
 that this is another step to reach my real goal: HilbiX, a 1.44 MB
 floppy sized console-less networked Linux install.
 
-New features:
+<b>New features:</b>
 
 `killall -1 socklinger` shuts down socklingers gracefully.
 
-NOTE THAT IT'S LIKELY THAT SOCKLINGER WILL BE MERGED INTO SOME OTHER
-OF MY TOOLS.  You will read, where you then can find it.  This is
-because I need support for non-TCP sockets, too.
+With -n0 (or -s) only a single accept() can be done (no looping).
+Options disable the old commandline behavior (prefixes n@ and src>dest).
+
+
+<b>Old features (deprecated, use commandline options):</b>
 
 If given socket is of form "src>dest" it is connected to.  src is the
-address to bind to, can be empty.  If @ is missing, only one single
+address to bind to (can be empty).  If @ is missing, only one single
 connect is done, else the connect is done in a loop (beware!).
 
 Alternat fork method (postfork) with negative count.  Default for
 CygWin, as accept() does not work with postfork under windows.
+
+<b>Final note:</b>
+
+It is likely that Socklinger will be merged into some other of my
+tools.  You will read, where you then can find it.  This is
+because I need support for non-TCP sockets, too.
