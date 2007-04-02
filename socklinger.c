@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.11  2007-03-27 01:13:03  tino
+ * Revision 1.12  2007-04-02 17:13:42  tino
+ * Again some changes, see ChangeLog
+ *
+ * Revision 1.11  2007/03/27 01:13:03  tino
  * New intermediate version.  Shall work, but untested
  *
  * Revision 1.10  2007/03/26 23:51:29  tino
@@ -70,6 +73,7 @@
 #include "tino/proc.h"
 #include "tino/str.h"
 #include "tino/hup.h"
+#include "tino/alarm.h"
 
 #include "socklinger_version.h"
 
@@ -90,6 +94,7 @@ struct socklinger_conf
     char	**argv;		/* program argument list: program [args]	*/
     int		count;		/* Max number of accepts, connects etc.	*/
     int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
+    int		delay;		/* Delay forking a number of seconds	*/
 
     /* Helpers
      */
@@ -250,7 +255,7 @@ socklinger_run(CONF)
 static void
 socklinger_postfork(CONF)
 {
-  int	n;
+  int	n, shot;
   pid_t	*pids;
 
   if (conf->count<0)
@@ -261,6 +266,7 @@ socklinger_postfork(CONF)
   pids	= tino_alloc0(conf->count * sizeof *pids);
 
   tino_hup_start(note_str(conf, "HUP received"));
+  shot	= 0;
   for (;;)
     {
       int	fd, status;
@@ -273,7 +279,14 @@ socklinger_postfork(CONF)
 
       if (n>=conf->count)
 	note(conf, "wait for childs");
-      pid	= waitpid((pid_t)-1, &status, (n<conf->count ? WNOHANG : 0));
+
+      /* Well, this can do a race!
+       */
+      if (shot)
+	tino_alarm_set(conf->delay, NULL, NULL);
+      pid	= waitpid((pid_t)-1, &status, (!shot && n<conf->count ? WNOHANG : 0));
+      if (shot)
+	tino_alarm_stop(NULL, NULL);
       if (pid==(pid_t)-1)
 	{
 	  if (errno!=EINTR && errno!=EAGAIN && errno!=ECHILD)
@@ -297,6 +310,8 @@ socklinger_postfork(CONF)
       fd	= socklinger_dosock(conf);
       if (fd<0)
 	continue;
+      if (conf->delay && n<conf->count)
+	shot	= 1;
       if ((pid=fork())==0)
 	{
 	  /* conf->n already set	*/
@@ -359,17 +374,17 @@ process_args(CONF, int argc, char **argv)
   argn	= tino_getopt(argc, argv, 2, 0,
 		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
 		      " [host]:port|unixsocket|- program [args...]\n"
-	      "\tYou probably need this for simple TCP shell scripts:\n"
-	      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
-	      "\telse the given socket (TCP or unix) is opened and listened on\n"
-	      "\tand each connection is served by the progam (max. N in parallel):\n"
-	      "\t1) Exec program with args with stdin/stdout connected to socket\n"
-	      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
-	      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
-	      "\t   env var SOCKLINGER_SOCK is set to the socket arg\n"
-	      "\t2) Wait for program termination.\n"
-	      "\t3) Shutdown the stdout side of the socket.\n"
-	      "\t   Wait (linger) on stdin until EOF is received."
+		      "\tYou probably need this for simple TCP shell scripts:\n"
+		      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
+		      "\telse the given socket (TCP or unix) is opened and listened on\n"
+		      "\tand each connection is served by the progam (max. N in parallel):\n"
+		      "\t1) Exec program with args with stdin/stdout connected to socket\n"
+		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
+		      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
+		      "\t   env var SOCKLINGER_SOCK is set to the socket arg\n"
+		      "\t2) Wait for program termination.\n"
+		      "\t3) Shutdown the stdout side of the socket.\n"
+		      "\t   Wait (linger) on stdin until EOF is received."
 		      ,
 
 		      TINO_GETOPT_USAGE
@@ -384,6 +399,12 @@ process_args(CONF, int argc, char **argv)
 		      "c	use connect instead of accept"
 		      , &flag_connect,
 
+		      TINO_GETOPT_INT
+		      "d secs	delay forking.  In preforking socklinger sleeps after\n"
+		      "		accept/connect, in preforking it does not fork more\n"
+		      "		connections in the given time."
+		      , &conf->delay,
+		      
 		      TINO_GETOPT_INT
 		      "n N	number of parallel connections to serve\n"
 		      "		if missing or 0 socklinger does 1 connect without loop\n"

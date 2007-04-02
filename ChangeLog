@@ -1,3 +1,7 @@
+2007-04-02    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (process_args): delay added
+
 2006-12-12    <tino@firebird.03.softkill.net>
 
 	* BUGS: updated
