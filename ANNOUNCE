@@ -1,6 +1,20 @@
-Option -d (for delay) added
+Version with options.
 
-Delay means that fork()s are delayed as follows:
+This slowly now moves to commandline arguments.  Old commandline still
+is supported if no options are present.
+
+To force the new behavior use option -s.
+With -s (or -n0) you can do a single accept() call now.
+
+Again beware:
+
+'-n0 :port' is not the same as '0@:port', the latter loops!
+Use '-n1 :port' to get a loop.
+However this sets SOCKLINGER_NR=1.
+
+So with the new behavior if you see SOCKLINGER_NR<1 you know, it's a single-shot.
+
+New option -d (for delay) means that fork()s are delayed as follows:
 
 Preforking (option -n >0): A child sleeps the given seconds after the
 connection terminated (after the linger).  To spread the values, the

@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.13  2007-04-03 02:07:27  tino
+ * Revision 1.14  2007-04-03 02:42:38  tino
+ * commit for dist (working version as it seems)
+ *
+ * Revision 1.13  2007/04/03 02:07:27  tino
  * delay function shall work now (and 3 ideas into getopt added but disabled)
  *
  * Revision 1.12  2007/04/02 17:13:42  tino
@@ -477,7 +480,7 @@ process_args(CONF, int argc, char **argv)
   if (conf->count || conf->connect)
     conf->flag_newstyle	= 1;
 
-  if (conf->flag_newstyle)
+  if (!conf->flag_newstyle)
     {
       /* Check for sane option values?
        */
