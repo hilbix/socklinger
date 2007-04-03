@@ -1,15 +1,12 @@
-Version with options.
+Option -d (for delay) added
 
-This slowly now moves to commandline arguments.  Old commandline still
-is supported if no options are present.
+Delay means that fork()s are delayed as follows:
 
-To force the new behavior use option -s.
-With -s (or -n0) you can do a single accept() call now.
+Preforking (option -n >0): A child sleeps the given seconds after the
+connection terminated (after the linger).  To spread the values, the
+initial fork()ing is delayed as given, too.  (Note that preforking is
+not available for accept-mode under CygWin.)
 
-Again beware:
-
-'-n0 :port' is not the same as '0@:port', the latter loops!
-Use '-n1 :port' to get a loop.
-However this sets SOCKLINGER_NR=1.
-
-So with the new behavior if you see SOCKLINGER_NR<1 you know, it's a single-shot.
+Postforking (option -n <0): After a fork delay() seconds must elaps
+before another new fork is done.  If a child returns in this time,
+fork() is available immediately again.
