@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.12  2007-04-02 17:13:42  tino
+ * Revision 1.13  2007-04-03 02:07:27  tino
+ * delay function shall work now (and 3 ideas into getopt added but disabled)
+ *
+ * Revision 1.12  2007/04/02 17:13:42  tino
  * Again some changes, see ChangeLog
  *
  * Revision 1.11  2007/03/27 01:13:03  tino
@@ -73,7 +76,7 @@
 #include "tino/proc.h"
 #include "tino/str.h"
 #include "tino/hup.h"
-#include "tino/alarm.h"
+#include "tino/sleep.h"
 
 #include "socklinger_version.h"
 
@@ -95,6 +98,9 @@ struct socklinger_conf
     int		count;		/* Max number of accepts, connects etc.	*/
     int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
     int		delay;		/* Delay forking a number of seconds	*/
+    int		ignerr;		/* Ignore errors in loops	*/
+    int		lingertime;	/* Maximum time to linger (in seconds)	*/
+    unsigned long lingersize;	/* Max bytes to read while lingering	*/
 
     /* Helpers
      */
@@ -279,14 +285,15 @@ socklinger_postfork(CONF)
 
       if (n>=conf->count)
 	note(conf, "wait for childs");
-
-      /* Well, this can do a race!
-       */
-      if (shot)
-	tino_alarm_set(conf->delay, NULL, NULL);
+      else if (shot)		/* send signal in delay secs	*/
+	{
+	  note(conf, "delaying %ds", conf->delay);
+	  tino_alarm_set(conf->delay, NULL, NULL);
+	}
       pid	= waitpid((pid_t)-1, &status, (!shot && n<conf->count ? WNOHANG : 0));
       if (shot)
 	tino_alarm_stop(NULL, NULL);
+      shot	= 0;	/* If processes return, immediately allow another connect	*/
       if (pid==(pid_t)-1)
 	{
 	  if (errno!=EINTR && errno!=EAGAIN && errno!=ECHILD)
@@ -306,6 +313,12 @@ socklinger_postfork(CONF)
 	      }
 	  continue;
 	}
+      if (n>=conf->count)
+	{
+	  tino_relax();
+	  continue;
+	}
+
       conf->nr	= n;
       fd	= socklinger_dosock(conf);
       if (fd<0)
@@ -348,12 +361,20 @@ socklinger_prefork(CONF)
 	conf->nr	= n;
 	tino_hup_start(note_str(conf, "HUP received"));
 	for (;;)
-	  socklinger_run(conf);
+	  if (socklinger_run(conf))
+	    tino_relax();
+	  else if (conf->delay)
+	    tino_sleep(conf->delay);
       }
     else if (pid==(pid_t)-1)
       {
 	conf->nr	= n;	/* report child number	*/
 	tino_exit(note_str(conf, "fork"));
+      }
+    else if (n>1 && conf->delay)
+      {
+	note(conf, "delaying %d", conf->delay);
+	tino_sleep(conf->delay);
       }
 
   close(conf->sock);	/* socket no more needed now	*/
@@ -400,11 +421,25 @@ process_args(CONF, int argc, char **argv)
 		      , &flag_connect,
 
 		      TINO_GETOPT_INT
+		      TINO_GETOPT_TIMESPEC
 		      "d secs	delay forking.  In preforking socklinger sleeps after\n"
 		      "		accept/connect, in preforking it does not fork more\n"
 		      "		connections in the given time."
 		      , &conf->delay,
-		      
+#if 0
+		      TINO_GETOPT_FLAG
+		      "i	ignore errors (stay in loop if fork() fails etc.)"
+		      , &conf->ignerr,
+
+		      TINO_GETOPT_INT
+		      "l secs	Maximum time to linger (default=0: forever)"
+		      , &conf->lingertime,
+
+		      TINO_GETOPT_ULONGINT
+		      TINO_GETOPT_SUFFIX
+		      "m bytes	Maximum data to read while lingering (default=0: any)"
+		      , &conf->lingersize,
+#endif
 		      TINO_GETOPT_INT
 		      "n N	number of parallel connections to serve\n"
 		      "		if missing or 0 socklinger does 1 connect without loop\n"

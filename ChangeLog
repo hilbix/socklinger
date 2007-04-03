@@ -1,3 +1,8 @@
+2007-04-03    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger_postfork, socklinger_prefork): delay
+	added
+
 2007-04-02    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (process_args): delay added
