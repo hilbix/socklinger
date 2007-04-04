@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.15  2007-04-04 03:45:08  tino
+ * Revision 1.16  2007-04-04 03:47:16  tino
+ * Cleanups before dist
+ *
+ * Revision 1.15  2007/04/04 03:45:08  tino
  * Internal rewrite to support option -i
  *
  * Revision 1.14  2007/04/03 02:42:38  tino
@@ -430,8 +433,6 @@ socklinger_postfork(CONF)
 static void
 socklinger_prefork(CONF)
 {
-  pid_t	*pids;
-
   socklinger_alloc_pids(conf);
 
   000;	/* missing: if parent dies, send something like HUP to all childs	*/
@@ -499,9 +500,7 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->delay,
 
 		      TINO_GETOPT_FLAG
-		      "i	ignore errors (stay in loop if fork() fails etc.)\n"
-		      "		note that this option is not yet implemented completely\n"
-		      "		It is completed for postfork (-n <0)"
+		      "i	ignore errors (stay in loop if fork() fails etc.)"
 		      , &conf->ignerr,
 #if 0
 		      TINO_GETOPT_INT
