@@ -1,5 +1,9 @@
 2007-04-04    <tino@firebird.03.softkill.net>
 
+	* socklinger.c (process_args): future options prepared
+
+	* example/tester.sh: improved output for tests
+
 	* socklinger.c (socklinger_postfork): cosmetics: again typo in PID
 	printing removed (now in waitchild) and SOCKLINGER_NR was 0..n-1,
 	correct to 1..n (now based on child_findfree).
@@ -10,6 +14,7 @@
 	postfork
 	(socklinger_prefork, socklinger_postfork): changed to use new
 	routines (which support ignerr)
+	(socklinger_forkchild): set dodelay only if delay is active
 
 2007-04-03    <tino@firebird.03.softkill.net>
 

@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.16  2007-04-04 03:47:16  tino
+ * Revision 1.17  2007-04-04 05:30:12  tino
+ * Delay corrected, help text improved
+ *
+ * Revision 1.16  2007/04/04 03:47:16  tino
  * Cleanups before dist
  *
  * Revision 1.15  2007/04/04 03:45:08  tino
@@ -109,7 +112,10 @@ struct socklinger_conf
     int		count;		/* Max number of accepts, connects etc.	*/
     int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
     int		delay;		/* Delay forking a number of seconds	*/
+    int		timeout;	/* Maximum connect timeout	*/
     int		ignerr;		/* Ignore errors in loops	*/
+    int		quiet;		/* Be more quiet	*/
+    int		verbose;	/* Be more verbose	*/
     int		lingertime;	/* Maximum time to linger (in seconds)	*/
     unsigned long lingersize;	/* Max bytes to read while lingering	*/
 
@@ -376,7 +382,8 @@ socklinger_forkchild(CONF, int n)
       socklinger_error(conf, "postfork fork()");
       return -1;
     }
-  conf->dodelay		= 1;	/* Delay the next fork()	*/
+  if (conf->delay)
+    conf->dodelay	= 1;	/* Delay the next fork()	*/
   conf->pids[n-1]	= pid;
   return 0;
 }
@@ -473,8 +480,8 @@ process_args(CONF, int argc, char **argv)
 		      "\tand each connection is served by the progam (max. N in parallel):\n"
 		      "\t1) Exec program with args with stdin/stdout connected to socket\n"
 		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
-		      "\t   env var SOCKLINGER_PEER is set to the peer's IP:port\n"
-		      "\t   env var SOCKLINGER_SOCK is set to the socket arg\n"
+		      "\t   env var SOCKLINGER_PEER is set to the peername\n"
+		      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
 		      "\t2) Wait for program termination.\n"
 		      "\t3) Shutdown the stdout side of the socket.\n"
 		      "\t   Wait (linger) on stdin until EOF is received."
@@ -504,6 +511,7 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->ignerr,
 #if 0
 		      TINO_GETOPT_INT
+		      TINO_GETOPT_TIMESPEC
 		      "l secs	Maximum time to linger (default=0: forever)"
 		      , &conf->lingertime,
 
@@ -518,13 +526,26 @@ process_args(CONF, int argc, char **argv)
 		      "		else preforking (N>0) or postforking (N<0) is done.\n"
 		      "		Under CygWin preforking is not available for accept mode"
 		      , &conf->count,
-
+#if 0
+		      TINO_GETOPT_FLAG
+		      "q	be more quiet (only tell important things)"
+		      , &conf->quiet,
+#endif
 		      TINO_GETOPT_FLAG
 		      "s	suppress old style prefix [n@[[src]>] to first param.\n"
 		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
 		      "		For N=0 only a single accept is done (else it loops!)."
 		      , &conf->flag_newstyle,
+#if 0
+		      TINO_GETOPT_INT
+		      TINO_GETOPT_TIMESPEC
+		      "t secs	Maximum connect timeout (default=0: system timeout)"
+		      , &conf->timeout,
 
+		      TINO_GETOPT_FLAG
+		      "v	be more verbose (takes precedence over -d)"
+		      , &conf->verbose,
+#endif
 		      NULL);
 
   if (argn<=0)
