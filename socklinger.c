@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.14  2007-04-03 02:42:38  tino
+ * Revision 1.15  2007-04-04 03:45:08  tino
+ * Internal rewrite to support option -i
+ *
+ * Revision 1.14  2007/04/03 02:42:38  tino
  * commit for dist (working version as it seems)
  *
  * Revision 1.13  2007/04/03 02:07:27  tino
@@ -92,6 +95,8 @@ struct socklinger_conf
      */
     int		sock;		/* Running socket	*/
     int		nr;		/* Running number	*/
+    pid_t	*pids;		/* List of childs	*/
+    int		dodelay;	/* Issue delay before fork	*/
 
     /* Settings
      */
@@ -240,7 +245,7 @@ socklinger_dosock(CONF)
     {
       if (errno!=EINTR)
 	perror(note_str(conf, conf->connect ? "connect" : "accept"));
-      sleep(1);
+      tino_relax();
     }
   return fd;
 }
@@ -262,131 +267,194 @@ socklinger_run(CONF)
 }
 
 static void
-socklinger_postfork(CONF)
+socklinger_error(CONF, const char *s)
 {
-  int	n, shot;
-  pid_t	*pids;
+  if (!conf->ignerr)
+    tino_exit(note_str(conf, s));
+  perror(note_str(conf, s));
+  tino_relax();
+}
 
+static void
+socklinger_alloc_pids(CONF)
+{
   if (conf->count<0)
     conf->count	= -conf->count;
+  conf->pids	= tino_alloc0(conf->count * sizeof *conf->pids);
+}
+
+/* Find a free child number
+ *
+ * 0	all childs taken
+ * <0	error
+ * >0	free child slot
+ */
+static int
+socklinger_child_findfree(CONF)
+{
+  int	n;
+
+  for (n=0; n<conf->count; n++)
+    if (!conf->pids[n])
+      return n+1;
+  return 0;
+}
+
+/* Wait for a free child slot
+ *
+ * 0	all childs taken or loop needed
+ * <0	child came home
+ * >0	free child slot
+ */
+static int
+socklinger_waitchild(CONF)
+{
+  int	n, e, status;
+  pid_t	pid;
+
+  conf->nr	= 0;
+  n		= socklinger_child_findfree(conf);
+  if (!n)
+    note(conf, "wait for childs");
+  else if (conf->dodelay)		/* send signal in delay secs	*/
+    {
+      note(conf, "delaying %ds", conf->delay);
+      tino_alarm_set(conf->delay, NULL, NULL);
+    }
+  pid	= waitpid((pid_t)-1, &status, (!conf->dodelay && n ? WNOHANG : 0));
+  e	= errno;
+  if (n && conf->dodelay)
+    tino_alarm_stop(NULL, NULL);
+  conf->dodelay	= 0;	/* If processes return, immediately allow another connect	*/
+  if (pid==(pid_t)-1)
+    {
+      if (e!=EINTR && e!=EAGAIN && e!=ECHILD)
+	{
+	  errno	= e;
+	  socklinger_error(conf, "waitpid()");
+	  return 0;
+	}
+    }
+  else if (pid)
+    {
+      char	*cause;
+
+      for (n=conf->count; --n>=0; )
+	if (pid==conf->pids[n])
+	  {
+	    conf->pids[n]	= 0;
+	    conf->nr		= n+1;	/* is nulled above again	*/
+	    break;
+	  }
+      cause	= tino_wait_child_status_string(status, NULL);
+      note(conf, "child %lu %s%s", (unsigned long)pid, cause, n>=0 ? "" : " (foreign child!)");
+      free(cause);
+      return -1;
+    }
+  conf->nr	= n;
+  return n;
+}
+
+/* Fork a child slot
+ *
+ * <0	error
+ * 0	parent
+ * >0	child
+ */
+static int
+socklinger_forkchild(CONF, int n)
+{
+  pid_t	pid;
+
+  if ((pid=fork())==0)
+    return 1;
+  if (pid==(pid_t)-1)
+    {
+      socklinger_error(conf, "postfork fork()");
+      return -1;
+    }
+  conf->dodelay		= 1;	/* Delay the next fork()	*/
+  conf->pids[n-1]	= pid;
+  return 0;
+}
+
+static void
+socklinger_postfork(CONF)
+{
+  int	fd;
 
   000;	/* missing: if parent dies, send something like HUP to all childs	*/
 
-  pids	= tino_alloc0(conf->count * sizeof *pids);
+  socklinger_alloc_pids(conf);
 
   tino_hup_start(note_str(conf, "HUP received"));
-  shot	= 0;
+  conf->dodelay	= 0;
   for (;;)
     {
-      int	fd, status;
-      pid_t	pid;
-
-      conf->nr	= 0;
+      int	n;
 
       tino_hup_ignore(0);
-      for (n=0; n<conf->count && pids[n]; n++);
 
-      if (n>=conf->count)
-	note(conf, "wait for childs");
-      else if (shot)		/* send signal in delay secs	*/
-	{
-	  note(conf, "delaying %ds", conf->delay);
-	  tino_alarm_set(conf->delay, NULL, NULL);
-	}
-      pid	= waitpid((pid_t)-1, &status, (!shot && n<conf->count ? WNOHANG : 0));
-      if (shot)
-	tino_alarm_stop(NULL, NULL);
-      shot	= 0;	/* If processes return, immediately allow another connect	*/
-      if (pid==(pid_t)-1)
-	{
-	  if (errno!=EINTR && errno!=EAGAIN && errno!=ECHILD)
-	    tino_exit(note_str(conf, "postfork"));
-	}
-      else if (pid)
-	{
-	  for (n=0; n<conf->count; n++)
-	    if (pid==pids[n])
-	      {
-		char	*cause;
-
-		pids[n]	= 0;
-		cause	= tino_wait_child_status_string(status, NULL);
-		note(conf, "child %ul %s", (unsigned long)pid, cause);
-		free(cause);
-	      }
-	  continue;
-	}
-      if (n>=conf->count)
+      n	= socklinger_waitchild(conf);
+      if (n<=0)
 	{
 	  tino_relax();
 	  continue;
 	}
 
-      conf->nr	= n;
       fd	= socklinger_dosock(conf);
       if (fd<0)
 	continue;
-      if (conf->delay && n<conf->count)
-	shot	= 1;
-      if ((pid=fork())==0)
-	{
-	  /* conf->n already set	*/
-	  if (conf->sock>=0)
-	    close(conf->sock);
-	  /* keep conf->sock for close() action above	*/
-	  if (socklinger(conf, fd, fd))
-	    perror(note_str(conf, "socklinger"));
-	  if (close(fd))
-	    tino_exit(note_str(conf, "close"));
-	  exit(0);
-	}
-      if (pid==(pid_t)-1)
-	{
-	  perror(note_str(conf, "fork"));
-	  continue;
-	}
+      if (socklinger_forkchild(conf, n)>0)
+	break;
       close(fd);
-      pids[n]	= pid;
     }
+
+  /* forked child code
+   */
+
+  /* conf->n already set	*/
+  if (conf->sock>=0)
+    close(conf->sock);
+  /* keep conf->sock for close() action above	*/
+  if (socklinger(conf, fd, fd))
+    {
+      perror(note_str(conf, "socklinger"));
+      exit(1);
+    }
+  if (close(fd))
+    tino_exit(note_str(conf, "close"));
+  exit(0);
 }
 
 static void
 socklinger_prefork(CONF)
 {
-  int	n;
-  pid_t	pid;
+  pid_t	*pids;
+
+  socklinger_alloc_pids(conf);
 
   000;	/* missing: if parent dies, send something like HUP to all childs	*/
 
-  for (n=conf->count; n>0; n--)
-    if ((pid=fork())==0)
-      {
-	conf->nr	= n;
-	tino_hup_start(note_str(conf, "HUP received"));
-	for (;;)
-	  if (socklinger_run(conf))
-	    tino_relax();
-	  else if (conf->delay)
-	    tino_sleep(conf->delay);
-      }
-    else if (pid==(pid_t)-1)
-      {
-	conf->nr	= n;	/* report child number	*/
-	tino_exit(note_str(conf, "fork"));
-      }
-    else if (n>1 && conf->delay)
-      {
-	note(conf, "delaying %d", conf->delay);
-	tino_sleep(conf->delay);
-      }
+  for (;;)
+    {
+      int	n;
 
-  close(conf->sock);	/* socket no more needed now	*/
+      n	= socklinger_waitchild(conf);
+      if (n<0 && !conf->ignerr)
+	tino_exit(note_str(conf, "child came home"));
 
-  while ((pid=wait(NULL))==(pid_t)-1)
-    if (errno!=EINTR && errno!=EAGAIN)
-      tino_exit(note_str(conf, "main-wait"));
+      if (n>0 && socklinger_forkchild(conf, n)>0)
+	break;
+    }
 
-  tino_exit(note_str(conf, "child came home"));
+  tino_hup_start(note_str(conf, "HUP received"));
+  for (;;)
+    if (socklinger_run(conf))
+      tino_relax();
+    else if (conf->delay)
+      tino_sleep(conf->delay);
+  exit(-1);
 }
 
 static void
@@ -429,11 +497,13 @@ process_args(CONF, int argc, char **argv)
 		      "		accept/connect, in preforking it does not fork more\n"
 		      "		connections in the given time."
 		      , &conf->delay,
-#if 0
-		      TINO_GETOPT_FLAG
-		      "i	ignore errors (stay in loop if fork() fails etc.)"
-		      , &conf->ignerr,
 
+		      TINO_GETOPT_FLAG
+		      "i	ignore errors (stay in loop if fork() fails etc.)\n"
+		      "		note that this option is not yet implemented completely\n"
+		      "		It is completed for postfork (-n <0)"
+		      , &conf->ignerr,
+#if 0
 		      TINO_GETOPT_INT
 		      "l secs	Maximum time to linger (default=0: forever)"
 		      , &conf->lingertime,
@@ -451,7 +521,7 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->count,
 
 		      TINO_GETOPT_FLAG
-		      "s	suppress old style address prefix [n@[[src]>]\n"
+		      "s	suppress old style prefix [n@[[src]>] to first param.\n"
 		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
 		      "		For N=0 only a single accept is done (else it loops!)."
 		      , &conf->flag_newstyle,

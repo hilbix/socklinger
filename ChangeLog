@@ -1,7 +1,20 @@
+2007-04-04    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger_postfork): cosmetics: again typo in PID
+	printing removed (now in waitchild) and SOCKLINGER_NR was 0..n-1,
+	correct to 1..n (now based on child_findfree).
+	(socklinger_dosock): sleep replaced by tino_relax()
+	(socklinger_error): added for support of option -1
+	(socklinger_child_findfree, socklinger_waitchild)
+	(socklinger_forkchild): added as generalized parts for pre- and
+	postfork
+	(socklinger_prefork, socklinger_postfork): changed to use new
+	routines (which support ignerr)
+
 2007-04-03    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger_postfork, socklinger_prefork): delay
-	added
+	added (now in waitchild())
 
 2007-04-02    <tino@firebird.03.softkill.net>
 
