@@ -2,7 +2,10 @@ Execute quick hack shell scripts connected to a socket.
 # $Header$
 # 
 # $Log$
-# Revision 1.6  2007-03-27 01:13:12  tino
+# Revision 1.7  2007-04-04 03:44:44  tino
+# Preparing next dist
+#
+# Revision 1.6  2007/03/27 01:13:12  tino
 # Prepared for new dist
 #
 # Revision 1.5  2006/12/12 11:52:17  tino
@@ -74,11 +77,12 @@ floppy sized console-less networked Linux install.
 
 <b>New features:</b>
 
+Options, like delay (-d).
+
 `killall -1 socklinger` shuts down socklingers gracefully.
 
 With -n0 (or -s) only a single accept() can be done (no looping).
 Options disable the old commandline behavior (prefixes n@ and src>dest).
-
 
 <b>Old features (deprecated, use commandline options):</b>
 
@@ -89,8 +93,18 @@ connect is done, else the connect is done in a loop (beware!).
 Alternat fork method (postfork) with negative count.  Default for
 CygWin, as accept() does not work with postfork under windows.
 
-<b>Final note:</b>
+<b>Future note:</b>
 
 It is likely that Socklinger will be merged into some other of my
 tools.  You will read, where you then can find it.  This is
 because I need support for non-TCP sockets, too.
+
+<b>CygWin note:</b>
+
+If socklinger does not compile under CygWin try following (do not
+overwrite tino/getopt.h!):
+<pre>echo >getopt.h; make</pre>
+
+This is a problem with the include chain of system headers I was
+unable to fix, but I don't want to "clutter" the release with a file
+which usually is not needed.
