@@ -1,44 +1,6 @@
-Cosmetics in output, option -i added, internal structure optimized
+Improved alarm/delay handling (perhaps a bugfix).
 
-Option -i ignores certain errors in loops, such that socklinger isn't
-terminated if fork() fails etc.
-
-Also a lot of internal things were improved (for option -i), such that
-the code is much more cleaner now (I hope).
-
-If you wonder where the 2.0.0 is, it's disguised in the 1.5.0 which
-carries a wrong version number.
-
-<b>Some notes to version numbers in case you wonder:</b>
-
-Versioning is major.minor.revision with all numbers start at 0 (or
-sometimes sub-zero).
-
-The major number is incremented only for important changes, such like
-important changes in commandline arguments, internal
-incompatibilities, complete rewrites or (official) stable releases.
-However if something is heavily beta or very incomplete it stays at
-it's major (0 usually) and the minor takes over this part.
-
-From 1.4.1 to 1.5.0 there was such an important commandline change:
--5@:port does not work anymore, it must be given as "-- -5@:port",
-because commandline options were introduced.  Therefor socklinger now
-gets the major incremented, not because of internal restructuring in
-this release but because of the changes done from 1.4.1 to 1.5.0.
-However beeing a 2.x does not mean it's more stable or more debugged
-than 1.x or 0.x versions, perhaps the 1.4.1 sometimes does a better
-job, who knows.
-
-Note that even if I completely rewrite most parts of a code but keep
-the functionality the same, this means, that only the revision number
-is incremented.  But often complete rewrites bring important changes,
-then you will see the minor or major incremented instead.  But not in
-this case.  The 1.5.0 just is wrongly numbered.
-
-<b>Some notes to CygWin</b>
-
-There are CygWin releases which need a fix befor socklinger compiles.
-I don't know how to fix it else.  This is, you must create an empty
-file named "getopt.h" in the build directory.  This can be done with
-<pre>echo >getopt.h; make</pre>
-Note that the includes inform about this fact under CygWin.
+The improvements are only in tinolib, but they are significant.  On a
+very old Linux distro option -d did not work, as this platform blocks
+some signals.  This now is compensated, as flags of used signals are
+now set to sane values before using them.
