@@ -1,3 +1,15 @@
+2007-05-08    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (socklinger): better lingering and shutdown now
+	from tinolib
+	(vnote): added to better generalize routines
+	(socklinger_error): moved to top
+
+2007-04-29    <tino@firebird.03.softkill.net>
+
+	* socklinger.c (main): SIGCHLD now is delivered to the process and
+	more commandline parameters
+
 2007-04-04    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (process_args): future options prepared

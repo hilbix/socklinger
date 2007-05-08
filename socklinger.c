@@ -23,7 +23,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
- * Revision 1.17  2007-04-04 05:30:12  tino
+ * Revision 1.18  2007-05-08 03:30:09  tino
+ * See ChangeLog, commit for dist
+ *
+ * Revision 1.17  2007/04/04 05:30:12  tino
  * Delay corrected, help text improved
  *
  * Revision 1.16  2007/04/04 03:47:16  tino
@@ -82,6 +85,7 @@
 #define TINO_DP_main	TINO_DP_OFF
 #endif
 
+#include "tino/file.h"
 #include "tino/sock.h"
 #include "tino/privilege.h"
 #include "tino/getopt.h"
@@ -114,8 +118,7 @@ struct socklinger_conf
     int		delay;		/* Delay forking a number of seconds	*/
     int		timeout;	/* Maximum connect timeout	*/
     int		ignerr;		/* Ignore errors in loops	*/
-    int		quiet;		/* Be more quiet	*/
-    int		verbose;	/* Be more verbose	*/
+    int		verbose;	/* verbose level	*/
     int		lingertime;	/* Maximum time to linger (in seconds)	*/
     unsigned long lingersize;	/* Max bytes to read while lingering	*/
 
@@ -135,21 +138,67 @@ note_str(CONF, const char *s)
 }
 
 static void
+vnote(CONF, const char *s, TINO_VA_LIST list)
+{
+  printf("%s", note_str(conf, ""));
+  tino_vfprintf(stdout, s, list);
+  printf("\n");
+}
+
+static void
+always(CONF, const char *s, ...)
+{
+  tino_va_list	list;
+
+  tino_va_start(list, s);
+  vnote(conf, s, &list);
+  tino_va_end(list);
+}
+
+static void
 note(CONF, const char *s, ...)
 {
-  va_list	list;
+  tino_va_list	list;
 
-  printf("%s", note_str(conf, ""));
-  va_start(list, s);
-  vprintf(s, list);
-  va_end(list);
-  printf("\n");
+  if (conf->verbose<0)
+    return;
+
+  tino_va_start(list, s);
+  vnote(conf, s, &list);
+  tino_va_end(list);
+}
+
+/* No sideeffects on errno
+ */
+static void
+verbose(CONF, const char *s, ...)
+{
+  tino_va_list	list;
+  int		e;
+
+  if (conf->verbose<=0)
+    return;
+
+  e	= errno;
+  tino_va_start(list, s);
+  vnote(conf, s, &list);
+  tino_va_end(list);
+  errno	= e;
+}
+
+static void
+socklinger_error(CONF, const char *s)
+{
+  if (!conf->ignerr)
+    tino_exit(note_str(conf, s));
+  perror(note_str(conf, s));
+  tino_relax();
 }
 
 static int
 socklinger(CONF, int fi, int fo)
 {
-  char	buf[BUFSIZ*10], *peer, *name;
+  char	*peer, *name;
   int	n;
   char	*env[4], *cause;
   int	keepfd[2];
@@ -157,9 +206,9 @@ socklinger(CONF, int fi, int fo)
 
   /* set some default socket options
    */
-  if ((tino_sock_linger_err(fo, 65535) && fo!=1) ||
-      (tino_sock_rcvbuf_err(fi, 102400) && fi) ||
-      (tino_sock_sndbuf_err(fo, 102400) && fo!=1))
+  if ((tino_sock_lingerE(fo, 65535) && fo!=1) ||
+      (tino_sock_rcvbufE(fi, 102400) && fi) ||
+      (tino_sock_sndbufE(fo, 102400) && fo!=1))
     return 1;
 
   tino_sock_reuse(fi, 1);
@@ -182,10 +231,11 @@ socklinger(CONF, int fi, int fo)
   env[1]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
   env[2]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
   env[3]	= 0;
+  always(conf, "peer %s via %s", peer, name);
   if (name)
-    free(name);
+    tino_free(name);
   if (peer)
-    free(peer);
+    tino_free(peer);
   /* fork off the child
    * Warning: stderr(2) stays as it is,
    * so it might be the socket (inetd-mode) 
@@ -201,17 +251,18 @@ socklinger(CONF, int fi, int fo)
 
   /* Free environment and wait for the child
    */
-  free(env[2]);
-  free(env[1]);
-  free(env[0]);
+  tino_free(env[2]);
+  tino_free(env[1]);
+  tino_free(env[0]);
 
   tino_wait_child_exact(pid, &cause);
-  note(conf, "%s, lingering", cause);
-  free(cause);
+  always(conf, "%s, lingering", cause);
+  tino_free(cause);
 
   tino_hup_ignore(0);
 
-  /* Now the socket belongs to us, and nobody else
+  /* Now the socket belongs to us, and nobody else.
+   *
    * Shutdown the writing side,
    * and flush the reading side
    * until the other side closes the socket, too.
@@ -219,15 +270,103 @@ socklinger(CONF, int fi, int fo)
    * Thus, do a typical lingering.
    */
   if (fo!=fi)
-    close(fo);
-  if (shutdown(fi, SHUT_WR))
+    tino_file_close(fo);
+  if (tino_sock_shutdownE(fi, SHUT_WR))
     return 1;
 
-  000;	/* add timeout and maximum data amount read away	*/
+  /* This shall become a library routine as correct lingering is
+   * somewhat generic.
+   *
+   * However for this it must be more detailed and the alarm handling
+   * must be better designed, too.
+   *
+   * Note that I consider lingering a design fault of TCP.  When you
+   * close a TCP socket the close should be delayed until all data is
+   * correctly delivered to the other side.  So a close shall shutdown
+   * the writing side and wait, while lingering, until all data has
+   * been delivered to the application.  However most modern TCP
+   * stacks not even wait until data has reached the other side, they
+   * already close the socket before the remaining data in the TCP
+   * queue buffers are really flushed.
+   *
+   * Closing a socket nonlingering could be archived easliy through
+   * O_NDELAY (so first fcntl() and then close()).  If this is not
+   * enough as you want flushing but timeout you can set an alarm()
+   * around it.  However such a behavior is likely to break a lot of
+   * programs, so perhaps a "close_linger()" syscall would be
+   * convenient or a matching socket flag.  As there is nothing
+   * portable (I did not hear about it) one has to re_invent the wheel
+   * (note that SO_LINGER is mostly ignored by many systems today).
+   * So that's exactly what I want to have: A generic
+   * "tino_sock_close()" and a "tino_sock_close_timeout()" which makes
+   * sure that all data is flushed to the other side before closing
+   * the socket.
+   *
+   * Also please see my tino_file_close() implementation, it knows
+   * about EINTR.
+   *
+   * Is there any way to - portably - find out if all data has been
+   * sent?  Note that then there still might be a problem, as incoming
+   * data usually is kept in the input buffer of the receiving side,
+   * and this does not mean that the data has reached the application.
+   * If this application (the other side) still is writing to the
+   * socket which already is closed on our side, it will see an error,
+   * and many applications do not handle write() and read() errors
+   * differently, this means, they bail out before reading what's in
+   * the socket input buffers.  This is deadly for file transfers, as
+   * this cuts the end of a file, for instance.  Socklinger was
+   * designed for "quickhacks", so it must assume that the other side
+   * misbehaves in TCP things, so this lingering is essential.
+   * Socklinger must linger until the other side sees the EOF on the
+   * input and therefor closes the write side.
+   *
+   * OTOH this might lead to other problems, where TCP connections
+   * just starve.  This is, the sending side does not shutdown the
+   * socket at all, perhaps because of a network loss.  In this case
+   * socklinger hangs endlessly waiting for the socket to terminate.
+   * Even SO_KEEPALIVE cannot help in each case, as the other side
+   * might wait until we close our reading side (which never happens).
+   * For this situation, there is the timeout.  If you haven't seen
+   * data for a long time while lingering you can consider the
+   * connection dead and tear it down.  However what a "long time" is
+   * cannot be hardcoded.  On ethernet 10s is a long time, while with
+   * smallband long distance connections even 1 hour can be a short
+   * period.
+   */
+  for (;;)
+    {
+      char	buf[BUFSIZ*10];
+      int	wasalarm;
 
-  while ((n=read(fi, buf, sizeof buf))!=0)
-    if (n<0 && (errno!=EINTR && errno!=EAGAIN))
-      return 1;
+      if (conf->lingertime)
+	tino_alarm_set(conf->lingertime, NULL, NULL);
+      n	= tino_file_read_intr(fi, buf, sizeof buf);
+      wasalarm	= tino_alarm_is_pending();
+      if (conf->lingertime)
+	tino_alarm_stop(NULL, NULL);
+      if (!n)
+	break;
+      if (n<0)
+	{
+	  if (errno!=EINTR && errno!=EAGAIN)
+	    return 1;
+	  if (wasalarm)
+	    {
+	      always(conf, "linger timeout");
+	      break;
+	    }
+	  tino_relax();
+	}
+      else if (conf->lingersize)
+	{
+	  if (conf->lingersize<=n)
+	    {
+	      always(conf, "linger size exeeded");
+	      break;
+	    }
+	  conf->lingersize	-= n;
+	}
+    }
   return 0;
 }
 
@@ -238,17 +377,21 @@ socklinger_dosock(CONF)
 
   if (conf->connect)
     {
+      int	e;
+
       note(conf, (*conf->connect ? "connect %s as %s" : "connect %s"), conf->address, conf->connect);
       fd	= tino_sock_tcp_connect(conf->address, *conf->connect ? conf->connect : NULL);
       /* As the connect may bind to privilege ports
        * end the privilege eleveation here
        */
+      e	= errno;
       tino_privilege_end_elevation();
+      errno	= e;
     }
   else
     {
       note(conf, "accept %s", conf->address);
-      fd	= accept(conf->sock, NULL, NULL);
+      fd	= tino_sock_acceptI(conf->sock);
     }
   if (fd<0)
     {
@@ -270,23 +413,19 @@ socklinger_run(CONF)
     return 1;
   if (socklinger(conf, fd, fd))
     perror(note_str(conf, "socklinger"));
-  if (close(fd))
+  if (tino_file_close(fd))
     tino_exit(note_str(conf, "close"));
   return 0;
 }
 
 static void
-socklinger_error(CONF, const char *s)
-{
-  if (!conf->ignerr)
-    tino_exit(note_str(conf, s));
-  perror(note_str(conf, s));
-  tino_relax();
-}
-
-static void
 socklinger_alloc_pids(CONF)
 {
+  /* missing: if parent terminates, send something like HUP to all
+   *  childs
+   */
+  000;
+
   if (conf->count<0)
     conf->count	= -conf->count;
   conf->pids	= tino_alloc0(conf->count * sizeof *conf->pids);
@@ -327,7 +466,7 @@ socklinger_waitchild(CONF)
     note(conf, "wait for childs");
   else if (conf->dodelay)		/* send signal in delay secs	*/
     {
-      note(conf, "delaying %ds", conf->delay);
+      verbose(conf, "delaying %ds", conf->delay);
       tino_alarm_set(conf->delay, NULL, NULL);
     }
   pid	= waitpid((pid_t)-1, &status, (!conf->dodelay && n ? WNOHANG : 0));
@@ -357,7 +496,7 @@ socklinger_waitchild(CONF)
 	  }
       cause	= tino_wait_child_status_string(status, NULL);
       note(conf, "child %lu %s%s", (unsigned long)pid, cause, n>=0 ? "" : " (foreign child!)");
-      free(cause);
+      tino_free(cause);
       return -1;
     }
   conf->nr	= n;
@@ -375,7 +514,7 @@ socklinger_forkchild(CONF, int n)
 {
   pid_t	pid;
 
-  if ((pid=fork())==0)
+  if (n<=0 || (pid=fork())==0)
     return 1;
   if (pid==(pid_t)-1)
     {
@@ -392,8 +531,6 @@ static void
 socklinger_postfork(CONF)
 {
   int	fd;
-
-  000;	/* missing: if parent dies, send something like HUP to all childs	*/
 
   socklinger_alloc_pids(conf);
 
@@ -417,7 +554,7 @@ socklinger_postfork(CONF)
 	continue;
       if (socklinger_forkchild(conf, n)>0)
 	break;
-      close(fd);
+      tino_file_close(fd);
     }
 
   /* forked child code
@@ -425,14 +562,14 @@ socklinger_postfork(CONF)
 
   /* conf->n already set	*/
   if (conf->sock>=0)
-    close(conf->sock);
+    tino_file_close(conf->sock);
   /* keep conf->sock for close() action above	*/
   if (socklinger(conf, fd, fd))
     {
       perror(note_str(conf, "socklinger"));
       exit(1);
     }
-  if (close(fd))
+  if (tino_file_close(fd))
     tino_exit(note_str(conf, "close"));
   exit(0);
 }
@@ -442,19 +579,19 @@ socklinger_prefork(CONF)
 {
   socklinger_alloc_pids(conf);
 
-  000;	/* missing: if parent dies, send something like HUP to all childs	*/
-
   for (;;)
     {
       int	n;
 
       n	= socklinger_waitchild(conf);
-      if (n<0 && !conf->ignerr)
-	tino_exit(note_str(conf, "child came home"));
-
-      if (n>0 && socklinger_forkchild(conf, n)>0)
+      if (n<0)
+	socklinger_error(conf, "child came home");
+      if (socklinger_forkchild(conf, n)>0)
 	break;
     }
+
+  /* forked child code (this is run by the fork()==0)
+   */
 
   tino_hup_start(note_str(conf, "HUP received"));
   for (;;)
@@ -509,28 +646,34 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_FLAG
 		      "i	ignore errors (stay in loop if fork() fails etc.)"
 		      , &conf->ignerr,
-#if 0
+
 		      TINO_GETOPT_INT
 		      TINO_GETOPT_TIMESPEC
-		      "l secs	Maximum time to linger (default=0: forever)"
+		      "l secs	Maximum time to linger (default=0: forever)\n"
+		      "		Note that arriving data restarts the timeout, see -m"
 		      , &conf->lingertime,
 
 		      TINO_GETOPT_ULONGINT
 		      TINO_GETOPT_SUFFIX
-		      "m bytes	Maximum data to read while lingering (default=0: any)"
+		      "m byte	Maximum data to read while lingering (default=0: any)"
 		      , &conf->lingersize,
-#endif
+
 		      TINO_GETOPT_INT
 		      "n N	number of parallel connections to serve\n"
 		      "		if missing or 0 socklinger does 1 connect without loop\n"
 		      "		else preforking (N>0) or postforking (N<0) is done.\n"
 		      "		Under CygWin preforking is not available for accept mode"
 		      , &conf->count,
-#if 0
+
 		      TINO_GETOPT_FLAG
-		      "q	be more quiet (only tell important things)"
-		      , &conf->quiet,
-#endif
+		      TINO_GETOPT_MIN
+		      TINO_GETOPT_MAX
+		      "q	be more quiet (only tell important things)\n"
+		      "		If not quiet enough, try >/dev/null (errs go to stderr)"
+		      , &conf->verbose,
+		      1,
+		      -1,
+
 		      TINO_GETOPT_FLAG
 		      "s	suppress old style prefix [n@[[src]>] to first param.\n"
 		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
@@ -541,15 +684,22 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_TIMESPEC
 		      "t secs	Maximum connect timeout (default=0: system timeout)"
 		      , &conf->timeout,
-
-		      TINO_GETOPT_FLAG
-		      "v	be more verbose (takes precedence over -d)"
-		      , &conf->verbose,
 #endif
+		      TINO_GETOPT_FLAG
+		      TINO_GETOPT_MIN
+		      TINO_GETOPT_MAX
+		      "v	be more verbose (opposit of -q)"
+		      , &conf->verbose,
+		      -1,
+		      1,
+
 		      NULL);
 
   if (argn<=0)
     exit(1);
+
+  if (!conf->lingertime)
+    verbose(conf, "unlimited lingering, perhaps try option -l");
 
   conf->address	= argv[argn];
   conf->argv	= argv+argn+1;
@@ -605,6 +755,7 @@ main(int argc, char **argv)
   CONF	= &config;
 
   process_args(conf, argc, argv);
+  tino_sigdummy(SIGCHLD);		/* interrupt process on SIGCHLD	*/
 
   /* Cnnection comes from stdin/stdout:
    */

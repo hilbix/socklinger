@@ -1,6 +1,7 @@
-Improved alarm/delay handling (perhaps a bugfix).
+Options -q (quiet) -v (verbose) and -l (linger timeout) -m (max linger)
 
-The improvements are only in tinolib, but they are significant.  On a
-very old Linux distro option -d did not work, as this platform blocks
-some signals.  This now is compensated, as flags of used signals are
-now set to sane values before using them.
+Now you can control the lingering process better with setting a
+timeout and maximum amount of data to read.  The default (0:unlimited)
+is somewhat unsuitable for most(!) situations, however it is
+impossible to give a better default value.  So if you have a lot of
+"hanging" processes in socklinger, try option -l.
