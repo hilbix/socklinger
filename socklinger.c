@@ -23,6 +23,9 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Log$
+ * Revision 1.19  2008-01-24 23:36:54  tino
+ * Typo fixes in comments
+ *
  * Revision 1.18  2007-05-08 03:30:09  tino
  * See ChangeLog, commit for dist
  *
@@ -744,9 +747,7 @@ process_args(CONF, int argc, char **argv)
     }
 }
 
-/* It shall get a real commandline
- *
- * Due to the "connect" case and the alternate fork method this routine got too complex.
+/* Due to the "connect" case and the alternate fork method this routine got too complex.
  */
 int
 main(int argc, char **argv)
@@ -757,7 +758,7 @@ main(int argc, char **argv)
   process_args(conf, argc, argv);
   tino_sigdummy(SIGCHLD);		/* interrupt process on SIGCHLD	*/
 
-  /* Cnnection comes from stdin/stdout:
+  /* Connection comes from stdin/stdout:
    */
   if (!conf->address)
     {
