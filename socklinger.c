@@ -6,23 +6,27 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2007 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2008 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.20  2008-04-21 23:02:30  tino
+ * Option -r (rotate) and two new environment variables
+ *
  * Revision 1.19  2008-01-24 23:36:54  tino
  * Typo fixes in comments
  *
@@ -88,6 +92,7 @@
 #define TINO_DP_main	TINO_DP_OFF
 #endif
 
+#include "tino/alarm.h"
 #include "tino/file.h"
 #include "tino/sock.h"
 #include "tino/privilege.h"
@@ -108,6 +113,8 @@ struct socklinger_conf
      */
     int		sock;		/* Running socket	*/
     int		nr;		/* Running number	*/
+    int		running;	/* Running total	*/
+    int		max;		/* Max running nr	*/
     pid_t	*pids;		/* List of childs	*/
     int		dodelay;	/* Issue delay before fork	*/
 
@@ -124,6 +131,7 @@ struct socklinger_conf
     int		verbose;	/* verbose level	*/
     int		lingertime;	/* Maximum time to linger (in seconds)	*/
     unsigned long lingersize;	/* Max bytes to read while lingering	*/
+    int		rotate;		/* do rotation	*/
 
     /* Helpers
      */
@@ -141,10 +149,10 @@ note_str(CONF, const char *s)
 }
 
 static void
-vnote(CONF, const char *s, TINO_VA_LIST list)
+vnote(CONF, TINO_VA_LIST list)
 {
   printf("%s", note_str(conf, ""));
-  tino_vfprintf(stdout, s, list);
+  tino_vfprintf(stdout, list);
   printf("\n");
 }
 
@@ -154,7 +162,7 @@ always(CONF, const char *s, ...)
   tino_va_list	list;
 
   tino_va_start(list, s);
-  vnote(conf, s, &list);
+  vnote(conf, &list);
   tino_va_end(list);
 }
 
@@ -167,7 +175,7 @@ note(CONF, const char *s, ...)
     return;
 
   tino_va_start(list, s);
-  vnote(conf, s, &list);
+  vnote(conf, &list);
   tino_va_end(list);
 }
 
@@ -184,7 +192,7 @@ verbose(CONF, const char *s, ...)
 
   e	= errno;
   tino_va_start(list, s);
-  vnote(conf, s, &list);
+  vnote(conf, &list);
   tino_va_end(list);
   errno	= e;
 }
@@ -203,7 +211,7 @@ socklinger(CONF, int fi, int fo)
 {
   char	*peer, *name;
   int	n;
-  char	*env[4], *cause;
+  char	*env[6], *cause;
   int	keepfd[2];
   pid_t	pid;
 
@@ -224,16 +232,19 @@ socklinger(CONF, int fi, int fo)
   /* Prepare the environment
    * This is a hack today, shall be done better in future
    */
-  peer	= tino_sock_get_peername(fi);
+  peer	= tino_sock_get_peernameN(fi);
   if (!peer)
-    peer	= tino_sock_get_peername(fo);
-  name	= tino_sock_get_sockname(fi);
+    peer	= tino_sock_get_peernameN(fo);
+  name	= tino_sock_get_socknameN(fi);
   if (!name)
-    name	= tino_sock_get_sockname(fo);
-  env[0]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
-  env[1]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
-  env[2]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
-  env[3]	= 0;
+    name	= tino_sock_get_socknameN(fo);
+  n		= 0;
+  env[n++]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
+  env[n++]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
+  env[n++]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
+  env[n++]	= tino_str_printf("SOCKLINGER_MAX=%d", conf->max);
+  env[n++]	= tino_str_printf("SOCKLINGER_COUNT=%d", conf->running);
+  env[n]	= 0;
   always(conf, "peer %s via %s", peer, name);
   if (name)
     tino_free(name);
@@ -254,9 +265,8 @@ socklinger(CONF, int fi, int fo)
 
   /* Free environment and wait for the child
    */
-  tino_free(env[2]);
-  tino_free(env[1]);
-  tino_free(env[0]);
+  while (--n>=0)
+    tino_free(env[n]);
 
   tino_wait_child_exact(pid, &cause);
   always(conf, "%s, lingering", cause);
@@ -273,7 +283,7 @@ socklinger(CONF, int fi, int fo)
    * Thus, do a typical lingering.
    */
   if (fo!=fi)
-    tino_file_close(fo);
+    tino_file_closeE(fo);
   if (tino_sock_shutdownE(fi, SHUT_WR))
     return 1;
 
@@ -343,7 +353,7 @@ socklinger(CONF, int fi, int fo)
 
       if (conf->lingertime)
 	tino_alarm_set(conf->lingertime, NULL, NULL);
-      n	= tino_file_read_intr(fi, buf, sizeof buf);
+      n	= tino_file_readI(fi, buf, sizeof buf);
       wasalarm	= tino_alarm_is_pending();
       if (conf->lingertime)
 	tino_alarm_stop(NULL, NULL);
@@ -416,7 +426,7 @@ socklinger_run(CONF)
     return 1;
   if (socklinger(conf, fd, fd))
     perror(note_str(conf, "socklinger"));
-  if (tino_file_close(fd))
+  if (tino_file_closeE(fd))
     tino_exit(note_str(conf, "close"));
   return 0;
 }
@@ -445,6 +455,17 @@ socklinger_child_findfree(CONF)
 {
   int	n;
 
+  /* Only reduce in slow motion	*/
+  if (conf->max && !conf->pids[conf->max-1])
+    conf->max--;
+  if (conf->rotate)
+    {
+      if (conf->rotate>conf->count)
+	conf->rotate	= 1;
+      n	= conf->rotate-1;
+      if (!conf->pids[n])
+	return n+1;
+    }
   for (n=0; n<conf->count; n++)
     if (!conf->pids[n])
       return n+1;
@@ -495,6 +516,8 @@ socklinger_waitchild(CONF)
 	  {
 	    conf->pids[n]	= 0;
 	    conf->nr		= n+1;	/* is nulled above again	*/
+	    conf->running--;
+	    /* Max corrected on next loop	*/
 	    break;
 	  }
       cause	= tino_wait_child_status_string(status, NULL);
@@ -517,8 +540,15 @@ socklinger_forkchild(CONF, int n)
 {
   pid_t	pid;
 
-  if (n<=0 || (pid=fork())==0)
+  if (n>conf->max)
+    conf->max	= n;
+  if (n<=0)
     return 1;
+  if ((pid=fork())==0)
+    {
+      conf->running++;
+      return 1;
+    }
   if (pid==(pid_t)-1)
     {
       socklinger_error(conf, "postfork fork()");
@@ -527,6 +557,9 @@ socklinger_forkchild(CONF, int n)
   if (conf->delay)
     conf->dodelay	= 1;	/* Delay the next fork()	*/
   conf->pids[n-1]	= pid;
+  conf->running++;
+  if (conf->rotate)
+    conf->rotate++;
   return 0;
 }
 
@@ -557,7 +590,7 @@ socklinger_postfork(CONF)
 	continue;
       if (socklinger_forkchild(conf, n)>0)
 	break;
-      tino_file_close(fd);
+      tino_file_closeE(fd);
     }
 
   /* forked child code
@@ -565,14 +598,14 @@ socklinger_postfork(CONF)
 
   /* conf->n already set	*/
   if (conf->sock>=0)
-    tino_file_close(conf->sock);
+    tino_file_closeE(conf->sock);
   /* keep conf->sock for close() action above	*/
   if (socklinger(conf, fd, fd))
     {
       perror(note_str(conf, "socklinger"));
       exit(1);
     }
-  if (tino_file_close(fd))
+  if (tino_file_closeE(fd))
     tino_exit(note_str(conf, "close"));
   exit(0);
 }
@@ -622,6 +655,9 @@ process_args(CONF, int argc, char **argv)
 		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
 		      "\t   env var SOCKLINGER_PEER is set to the peername\n"
 		      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
+		      "\tThe following is only meaningful for postforking:\n"
+		      "\t   env var SOCKLINGER_MAX is set to maximum running NR\n"
+		      "\t   env var SOCKLINGER_COUNT is set to the currently running tasks\n"
 		      "\t2) Wait for program termination.\n"
 		      "\t3) Shutdown the stdout side of the socket.\n"
 		      "\t   Wait (linger) on stdin until EOF is received."
@@ -676,6 +712,10 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->verbose,
 		      1,
 		      -1,
+
+		      TINO_GETOPT_FLAG
+		      "r	rotate slots (only meaningful with postforking)"
+		      , &conf->rotate,
 
 		      TINO_GETOPT_FLAG
 		      "s	suppress old style prefix [n@[[src]>] to first param.\n"

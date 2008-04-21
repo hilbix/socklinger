@@ -1,7 +1,14 @@
-Options -q (quiet) -v (verbose) and -l (linger timeout) -m (max linger)
+Option -r added
 
-Now you can control the lingering process better with setting a
-timeout and maximum amount of data to read.  The default (0:unlimited)
-is somewhat unsuitable for most(!) situations, however it is
-impossible to give a better default value.  So if you have a lot of
-"hanging" processes in socklinger, try option -l.
+Postforking now even more usable with the new option -r and the two
+environment variables SOCKLINGER_COUNT and SOCKLINGER_MAX.  This is to
+be able to do statistics and cleanups to notekeeping.
+
+When forks are guaranteed to be slow (or with a high delay setting)
+such that there cannot be any race condition, then you can use the
+environment variables to do the cleanup.
+
+On a high fork frequency you can use option -r, such that the process
+slots are cycled.  As each slot then is visited in a round robin
+fashion, you can do the notekeeping (and possible cleanups) at the
+beginning.
