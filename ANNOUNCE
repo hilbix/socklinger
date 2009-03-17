@@ -1,3 +1,5 @@
-Options -p and -u added for timestamping
+Options -p and -u added for timestamping,
+now installs into /usr/local/bin
 
 Also source update to latest library changes
+
