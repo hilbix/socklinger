@@ -6,7 +6,7 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2008 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2009 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,9 @@
  * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.21  2009-03-17 10:54:05  tino
+ * New options for timestamping
+ *
  * Revision 1.20  2008-04-21 23:02:30  tino
  * Option -r (rotate) and two new environment variables
  *
@@ -60,9 +63,6 @@
  * Revision 1.9  2006/12/12 11:52:17  tino
  * New version with editing in the old edits to do prefork and connect
  *
- * Revision 1.8  2006/12/12 10:36:42  tino
- * See ChangeLog
- *
  * Revision 1.7  2006/02/09 12:53:47  tino
  * one more close was forgotten in the main program
  *
@@ -81,9 +81,6 @@
  *
  * Revision 1.2  2004/08/16 14:03:16  Administrator
  * Support for handling more than one connection (a fixed number) in parallel
- *
- * Revision 1.1  2004/08/16 01:29:57  Administrator
- * initial add
  */
 
 #if 0
@@ -117,6 +114,7 @@ struct socklinger_conf
     int		max;		/* Max running nr	*/
     pid_t	*pids;		/* List of childs	*/
     int		dodelay;	/* Issue delay before fork	*/
+    time_t	now;		/* Last timestamp	*/
 
     /* Settings
      */
@@ -132,19 +130,36 @@ struct socklinger_conf
     int		lingertime;	/* Maximum time to linger (in seconds)	*/
     unsigned long lingersize;	/* Max bytes to read while lingering	*/
     int		rotate;		/* do rotation	*/
+    int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
 
     /* Helpers
      */
     long	pid;
     char	note_buf[80];
+    char	timestring[20];	/* YYYYMMDD-HHMMSS	*/
   };
+
+static void
+conf_set_time(CONF)
+{
+  struct tm	*tm;
+
+  time(&conf->now);
+  tm	= (conf->utc ? gmtime : localtime)(&conf->now);
+  snprintf(conf->timestring, sizeof conf->timestring, "%04d%02d%02d-%02d%02d%02d", tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+}
 
 static const char *
 note_str(CONF, const char *s)
 {
   if (!conf->pid)
     conf->pid	= getpid();
-  snprintf(conf->note_buf, sizeof conf->note_buf, "[%d][%05ld] %s", conf->nr, conf->pid, s);
+  conf_set_time(conf);
+  if (conf->prepend)
+    snprintf(conf->note_buf, sizeof conf->note_buf, "[%s][%d][%05ld] %s", conf->timestring, conf->nr, conf->pid, s);
+  else
+    snprintf(conf->note_buf, sizeof conf->note_buf, "[%d][%05ld] %s", conf->nr, conf->pid, s);
+
   return conf->note_buf;
 }
 
@@ -211,7 +226,7 @@ socklinger(CONF, int fi, int fo)
 {
   char	*peer, *name;
   int	n;
-  char	*env[6], *cause;
+  char	*env[7], *cause;
   int	keepfd[2];
   pid_t	pid;
 
@@ -244,12 +259,13 @@ socklinger(CONF, int fi, int fo)
   env[n++]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
   env[n++]	= tino_str_printf("SOCKLINGER_MAX=%d", conf->max);
   env[n++]	= tino_str_printf("SOCKLINGER_COUNT=%d", conf->running);
+  always(conf, "peer %s via %s", peer, name);	/* sets conf->timestring	*/
+  env[n++]	= tino_str_printf("SOCKLINGER_NOW=%s", conf->timestring);
   env[n]	= 0;
-  always(conf, "peer %s via %s", peer, name);
   if (name)
-    tino_free(name);
+    tino_freeO(name);
   if (peer)
-    tino_free(peer);
+    tino_freeO(peer);
   /* fork off the child
    * Warning: stderr(2) stays as it is,
    * so it might be the socket (inetd-mode) 
@@ -258,7 +274,7 @@ socklinger(CONF, int fi, int fo)
   keepfd[0]	= conf->sock+1;	/* close from 2..sock	*/
   keepfd[1]	= 0;
 
-  tino_hup_ignore(1);
+  tino_hup_ignoreO(1);
 
   note(conf, "run %s", conf->argv[0]);
   pid		= tino_fork_exec(fi, fo, 2, conf->argv, env, 1, keepfd);
@@ -266,13 +282,13 @@ socklinger(CONF, int fi, int fo)
   /* Free environment and wait for the child
    */
   while (--n>=0)
-    tino_free(env[n]);
+    tino_freeO(env[n]);
 
   tino_wait_child_exact(pid, &cause);
   always(conf, "%s, lingering", cause);
-  tino_free(cause);
+  tino_freeO(cause);
 
-  tino_hup_ignore(0);
+  tino_hup_ignoreO(0);
 
   /* Now the socket belongs to us, and nobody else.
    *
@@ -383,23 +399,44 @@ socklinger(CONF, int fi, int fo)
   return 0;
 }
 
+/* give up effective UID
+ * against privilege escalation
+ */
+static void
+drop_privileges(CONF)
+{
+  int	e;
+
+#ifdef HORRIBLY_INSECURE_NEVER_DO_THIS
+  if (conf->keep_privileges)
+    return;
+#endif
+  e	= errno;
+  if (tino_privilege_end_elevationE()<0)
+    socklinger_error(conf, "error dropping privileges");
+  errno	= e;
+}
+
 static int
 socklinger_dosock(CONF)
 {
-  int	fd;
+  int	fd, wasalarm;
 
+  wasalarm	= 0;
   if (conf->connect)
     {
-      int	e;
-
       note(conf, (*conf->connect ? "connect %s as %s" : "connect %s"), conf->address, conf->connect);
+      if (conf->timeout)
+	tino_alarm_set(conf->timeout, NULL, NULL);
       fd	= tino_sock_tcp_connect(conf->address, *conf->connect ? conf->connect : NULL);
+      wasalarm	= tino_alarm_is_pending();
+      if (conf->timeout)
+	tino_alarm_stop(NULL, NULL);
+
       /* As the connect may bind to privilege ports
        * end the privilege eleveation here
        */
-      e	= errno;
-      tino_privilege_end_elevation();
-      errno	= e;
+      drop_privileges(conf);
     }
   else
     {
@@ -410,6 +447,8 @@ socklinger_dosock(CONF)
     {
       if (errno!=EINTR)
 	perror(note_str(conf, conf->connect ? "connect" : "accept"));
+      else if (wasalarm)
+	perror(note_str(conf, conf->connect ? "connect timeout" : "accept timeout"));
       tino_relax();
     }
   return fd;
@@ -420,7 +459,7 @@ socklinger_run(CONF)
 {
   int	fd;
 
-  tino_hup_ignore(0);
+  tino_hup_ignoreO(0);
   fd	= socklinger_dosock(conf);
   if (fd<0)
     return 1;
@@ -441,7 +480,7 @@ socklinger_alloc_pids(CONF)
 
   if (conf->count<0)
     conf->count	= -conf->count;
-  conf->pids	= tino_alloc0(conf->count * sizeof *conf->pids);
+  conf->pids	= tino_alloc0O(conf->count * sizeof *conf->pids);
 }
 
 /* Find a free child number
@@ -522,7 +561,7 @@ socklinger_waitchild(CONF)
 	  }
       cause	= tino_wait_child_status_string(status, NULL);
       note(conf, "child %lu %s%s", (unsigned long)pid, cause, n>=0 ? "" : " (foreign child!)");
-      tino_free(cause);
+      tino_freeO(cause);
       return -1;
     }
   conf->nr	= n;
@@ -570,13 +609,13 @@ socklinger_postfork(CONF)
 
   socklinger_alloc_pids(conf);
 
-  tino_hup_start(note_str(conf, "HUP received"));
+  tino_hup_startO(note_str(conf, "HUP received"));
   conf->dodelay	= 0;
   for (;;)
     {
       int	n;
 
-      tino_hup_ignore(0);
+      tino_hup_ignoreO(0);
 
       n	= socklinger_waitchild(conf);
       if (n<=0)
@@ -629,7 +668,7 @@ socklinger_prefork(CONF)
   /* forked child code (this is run by the fork()==0)
    */
 
-  tino_hup_start(note_str(conf, "HUP received"));
+  tino_hup_startO(note_str(conf, "HUP received"));
   for (;;)
     if (socklinger_run(conf))
       tino_relax();
@@ -655,6 +694,7 @@ process_args(CONF, int argc, char **argv)
 		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
 		      "\t   env var SOCKLINGER_PEER is set to the peername\n"
 		      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
+		      "\t   env var SOCKLINGER_NOW is set to YYYYMMDD-HHMMSS (see -u)\n"
 		      "\tThe following is only meaningful for postforking:\n"
 		      "\t   env var SOCKLINGER_MAX is set to maximum running NR\n"
 		      "\t   env var SOCKLINGER_COUNT is set to the currently running tasks\n"
@@ -685,7 +725,12 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_FLAG
 		      "i	ignore errors (stay in loop if fork() fails etc.)"
 		      , &conf->ignerr,
-
+#ifdef HORRIBLY_INSECURE_NEVER_DO_THIS
+		      TINO_GETOPT_FLAG
+		      "k	keep privileges (do not drop privilege escalation)\n"
+		      "		WARNING, USE THAT WITH CARE!"
+		      , &conf->keep_privileges,
+#endif
 		      TINO_GETOPT_INT
 		      TINO_GETOPT_TIMESPEC
 		      "l secs	Maximum time to linger (default=0: forever)\n"
@@ -703,6 +748,10 @@ process_args(CONF, int argc, char **argv)
 		      "		else preforking (N>0) or postforking (N<0) is done.\n"
 		      "		Under CygWin preforking is not available for accept mode"
 		      , &conf->count,
+
+		      TINO_GETOPT_FLAG
+		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
+		      , &conf->prepend,
 
 		      TINO_GETOPT_FLAG
 		      TINO_GETOPT_MIN
@@ -729,9 +778,13 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->timeout,
 #endif
 		      TINO_GETOPT_FLAG
+		      "u	use UTC time (see -p and env)"
+		      , &conf->utc,
+
+		      TINO_GETOPT_FLAG
 		      TINO_GETOPT_MIN
 		      TINO_GETOPT_MAX
-		      "v	be more verbose (opposit of -q)"
+		      "v	be more verbose (opposite of -q)"
 		      , &conf->verbose,
 		      -1,
 		      1,
@@ -802,7 +855,7 @@ main(int argc, char **argv)
    */
   if (!conf->address)
     {
-      tino_privilege_end_elevation();
+      drop_privileges(conf);
       if (socklinger(conf, 0, 1))
 	{
 	  perror(note_str(conf, "socklinger"));
@@ -815,10 +868,7 @@ main(int argc, char **argv)
     {
       conf->sock	= tino_sock_tcp_listen(conf->address);
 
-      /* give up effective UID
-       * against privilege escalation
-       */
-      tino_privilege_end_elevation();
+      drop_privileges(conf);
 
 #ifdef __CYGWIN__
       /* Under CygWin preforking isn't possible as it is impossible to
@@ -829,6 +879,8 @@ main(int argc, char **argv)
 	conf->count	= -conf->count;
 #endif
    }
+  else if (!conf->connect)
+    drop_privileges(conf);	/* drop privileges early	*/
 
   conf->nr	= 0;
 
@@ -862,7 +914,7 @@ main(int argc, char **argv)
        * accept() is done.  However repeat the accept() if accept
        * returns an error (there are spurious connects out there).
        */
-      tino_hup_start(note_str(conf, "HUP received"));
+      tino_hup_startO(note_str(conf, "HUP received"));
       while (socklinger_run(conf) || !conf->flag_newstyle);
     }
   return 0;

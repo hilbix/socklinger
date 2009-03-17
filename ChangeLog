@@ -1,3 +1,10 @@
+2009-02-04  Valentin Hilbig  <tino@zoo.03.softkill.net>
+
+	* socklinger.c (conf_set_time): added
+	(process_args): Options -p and -u added
+	(drop_privileges): added, notes privilege dropping errors
+	(main): in case of -c without -b drop privileges early
+
 2007-05-08    <tino@firebird.03.softkill.net>
 
 	* socklinger.c (socklinger): better lingering and shutdown now
