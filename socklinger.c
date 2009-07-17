@@ -24,6 +24,9 @@
  * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.22  2009-07-17 00:22:10  tino
+ * SOCKLINGER_PID added in env
+ *
  * Revision 1.21  2009-03-17 10:54:05  tino
  * New options for timestamping
  *
@@ -152,8 +155,6 @@ conf_set_time(CONF)
 static const char *
 note_str(CONF, const char *s)
 {
-  if (!conf->pid)
-    conf->pid	= getpid();
   conf_set_time(conf);
   if (conf->prepend)
     snprintf(conf->note_buf, sizeof conf->note_buf, "[%s][%d][%05ld] %s", conf->timestring, conf->nr, conf->pid, s);
@@ -226,7 +227,7 @@ socklinger(CONF, int fi, int fo)
 {
   char	*peer, *name;
   int	n;
-  char	*env[7], *cause;
+  char	*env[8], *cause;
   int	keepfd[2];
   pid_t	pid;
 
@@ -259,6 +260,7 @@ socklinger(CONF, int fi, int fo)
   env[n++]	= tino_str_printf("SOCKLINGER_SOCK=%s", (name ? name : ""));
   env[n++]	= tino_str_printf("SOCKLINGER_MAX=%d", conf->max);
   env[n++]	= tino_str_printf("SOCKLINGER_COUNT=%d", conf->running);
+  env[n++]	= tino_str_printf("SOCKLINGER_PID=%ld", conf->pid);
   always(conf, "peer %s via %s", peer, name);	/* sets conf->timestring	*/
   env[n++]	= tino_str_printf("SOCKLINGER_NOW=%s", conf->timestring);
   env[n]	= 0;
@@ -694,6 +696,7 @@ process_args(CONF, int argc, char **argv)
 		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
 		      "\t   env var SOCKLINGER_PEER is set to the peername\n"
 		      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
+		      "\t   env var SOCKLINGER_PID gives the forking socklinger PID\n"
 		      "\t   env var SOCKLINGER_NOW is set to YYYYMMDD-HHMMSS (see -u)\n"
 		      "\tThe following is only meaningful for postforking:\n"
 		      "\t   env var SOCKLINGER_MAX is set to maximum running NR\n"
@@ -797,6 +800,12 @@ process_args(CONF, int argc, char **argv)
   if (!conf->lingertime)
     verbose(conf, "unlimited lingering, perhaps try option -l");
 
+  /* We need the PID for the environment, so set it here.
+   * Pherhaps this changes as we might be called via chaining.
+   * This is not yet supported, but it might be required in future.
+   */
+  conf->pid	= getpid();
+
   conf->address	= argv[argn];
   conf->argv	= argv+argn+1;
   conf->sock	= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
@@ -847,7 +856,7 @@ main(int argc, char **argv)
 {
   static struct socklinger_conf	config;	/* may be big and must be preset 0	*/
   CONF	= &config;
-
+  
   process_args(conf, argc, argv);
   tino_sigdummy(SIGCHLD);		/* interrupt process on SIGCHLD	*/
 
