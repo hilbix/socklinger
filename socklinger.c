@@ -24,6 +24,9 @@
  * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.23  2010-01-25 16:17:22  tino
+ * Release before additional changes
+ *
  * Revision 1.22  2009-07-17 00:22:10  tino
  * SOCKLINGER_PID added in env
  *
@@ -592,7 +595,7 @@ socklinger_forkchild(CONF, int n)
     }
   if (pid==(pid_t)-1)
     {
-      socklinger_error(conf, "postfork fork()");
+      socklinger_error(conf, "fork()");
       return -1;
     }
   if (conf->delay)
@@ -721,8 +724,8 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_INT
 		      TINO_GETOPT_TIMESPEC
 		      "d secs	delay forking.  In preforking socklinger sleeps after\n"
-		      "		accept/connect, in preforking it does not fork more\n"
-		      "		connections in the given time."
+		      "		accept/connect, in postforking it does not fork\n"
+		      "		additional childs for the given time."
 		      , &conf->delay,
 
 		      TINO_GETOPT_FLAG

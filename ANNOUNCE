@@ -5,7 +5,8 @@ now installs into /usr/local/bin
 SOCKLINGER_PID is when you need to kill the outer loop for some
 reason, like security issues.  Try following at your own risk:
 <pre>#!/bin/bash
-[ -n "$SOCKLINGER_PID" ] || exec env -i /usr/local/bin/socklinger -n -5 :12345 "$0"</pre>
+[ -n "$SOCKLINGER_PID" ] || exec env -i /usr/local/bin/socklinger -pn -5 :12345 "$0"
+</pre>
 
 Also source update to latest library changes
 
