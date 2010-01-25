@@ -6,7 +6,7 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2009 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2010 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,9 @@
  * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.24  2010-01-25 23:03:12  tino
+ * Option -f works, also scripts are working, too.
+ *
  * Revision 1.23  2010-01-25 16:17:22  tino
  * Release before additional changes
  *
@@ -97,10 +100,9 @@
 
 #include "tino/alarm.h"
 #include "tino/file.h"
-#include "tino/sock.h"
+#include "tino/procsock.h"
 #include "tino/privilege.h"
 #include "tino/getopt.h"
-#include "tino/proc.h"
 #include "tino/str.h"
 #include "tino/hup.h"
 #include "tino/sleep.h"
@@ -124,6 +126,7 @@ struct socklinger_conf
 
     /* Settings
      */
+    int		fd;		/* File descriptor, -1=0/1, else only this FD	*/
     char	*address;	/* Socket argument (listen address or connect address)	*/
     char	*connect;	/* NULL: accept(); else: connect.  If nonempty: bind arg	*/
     char	**argv;		/* program argument list: program [args]	*/
@@ -231,7 +234,7 @@ socklinger(CONF, int fi, int fo)
   char	*peer, *name;
   int	n;
   char	*env[8], *cause;
-  int	keepfd[2];
+  int	keepfd[3], max, *fds;
   pid_t	pid;
 
   /* set some default socket options
@@ -254,9 +257,22 @@ socklinger(CONF, int fi, int fo)
   peer	= tino_sock_get_peernameN(fi);
   if (!peer)
     peer	= tino_sock_get_peernameN(fo);
+  if (!peer)
+    peer	= conf->address;
   name	= tino_sock_get_socknameN(fi);
   if (!name)
     name	= tino_sock_get_socknameN(fo);
+  if (!name)
+    name	= conf->connect;
+
+  /* A second hack is to preset peer and name in case of process sockets.
+   * This really should be handled by the subsystem correctly.
+   */
+  if (!peer || *conf->address=='|')
+    peer	= tino_strdupO(conf->address);
+  if (!name || *conf->address=='|')
+    name	= tino_strdupO(conf->connect);
+
   n		= 0;
   env[n++]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
   env[n++]	= tino_str_printf("SOCKLINGER_PEER=%s", (peer ? peer : ""));
@@ -271,18 +287,36 @@ socklinger(CONF, int fi, int fo)
     tino_freeO(name);
   if (peer)
     tino_freeO(peer);
+
   /* fork off the child
    * Warning: stderr(2) stays as it is,
    * so it might be the socket (inetd-mode) 
-  * or the tty (acceptloop mode).
+   * or the tty (acceptloop mode).
    */
   keepfd[0]	= conf->sock+1;	/* close from 2..sock	*/
   keepfd[1]	= 0;
+  keepfd[2]	= 0;
+
+  max	= conf->fd+1;
+  if (max<3)
+    max	= 3;
+  fds		= tino_allocO(max*sizeof *fds);
+  fds[0]	= fi;
+  fds[1]	= fo;
+  fds[2]	= 2;
+  if (conf->fd>=0)
+    {
+      TINO_FATAL_IF(fi!=fo);
+      fds[0]		= 0;
+      fds[1]		= 1;
+      fds[conf->fd]	= fi;
+      keepfd[1]		= conf->fd;
+    }
 
   tino_hup_ignoreO(1);
 
   note(conf, "run %s", conf->argv[0]);
-  pid		= tino_fork_exec(fi, fo, 2, conf->argv, env, 1, keepfd);
+  pid		= tino_fork_execO(fds,max, conf->argv, env, 1, keepfd);
 
   /* Free environment and wait for the child
    */
@@ -433,7 +467,7 @@ socklinger_dosock(CONF)
       note(conf, (*conf->connect ? "connect %s as %s" : "connect %s"), conf->address, conf->connect);
       if (conf->timeout)
 	tino_alarm_set(conf->timeout, NULL, NULL);
-      fd	= tino_sock_tcp_connect(conf->address, *conf->connect ? conf->connect : NULL);
+      fd	= tino_proc_sock(conf->address, "|", conf->connect);
       wasalarm	= tino_alarm_is_pending();
       if (conf->timeout)
 	tino_alarm_stop(NULL, NULL);
@@ -690,7 +724,7 @@ process_args(CONF, int argc, char **argv)
 
   argn	= tino_getopt(argc, argv, 2, 0,
 		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
-		      " [host]:port|unixsocket|- program [args...]\n"
+		      " [host]:port|unixsocket|-|'|script' program [args...]\n"
 		      "\tYou probably need this for simple TCP shell scripts:\n"
 		      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
 		      "\telse the given socket (TCP or unix) is opened and listened on\n"
@@ -714,7 +748,9 @@ process_args(CONF, int argc, char **argv)
 		      ,
 
 		      TINO_GETOPT_STRING
-		      "b	bind to address for connect, implies option -c"
+		      "b addr	bind to address for connect, implies option -c\n"
+		      "		For process sockets ('|'-type) this is the environment\n"
+		      "		like -b 'HELLO=world ANOTHER=var'"
 		      , &conf->connect,
 
 		      TINO_GETOPT_FLAG
@@ -727,6 +763,12 @@ process_args(CONF, int argc, char **argv)
 		      "		accept/connect, in postforking it does not fork\n"
 		      "		additional childs for the given time."
 		      , &conf->delay,
+
+		      TINO_GETOPT_INT
+		      TINO_GETOPT_DEFAULT
+		      "f nr	Set fd for socket, default sets it for 0/1"
+		      , &conf->fd,
+		      -1,
 
 		      TINO_GETOPT_FLAG
 		      "i	ignore errors (stay in loop if fork() fails etc.)"
@@ -814,7 +856,7 @@ process_args(CONF, int argc, char **argv)
   conf->sock	= -1;	/* important: must be -1 such that keepfd[0] above becomes 0.  XXX is this correct?	*/
   conf->nr	= -1;
 
-  if (flag_connect && !conf->connect)
+  if ((flag_connect || *conf->address=='|') && !conf->connect)
     conf->connect	= "";
 
   if (!*conf->address || !strcmp(conf->address,"-"))
@@ -868,6 +910,11 @@ main(int argc, char **argv)
   if (!conf->address)
     {
       drop_privileges(conf);
+      if (conf->fd>=0)
+	{
+	  perror(note_str(conf, "cannot use option -f here"));
+	  return 3;
+	}
       if (socklinger(conf, 0, 1))
 	{
 	  perror(note_str(conf, "socklinger"));
