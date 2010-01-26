@@ -1,7 +1,15 @@
-Script sockets implemented, Option -f.
+Script sockets implemented, Options -f -t -w.
 
-Both are somewhat experimental.
+All are somewhat experimental.
 
 If the socket starts with a pipe character (|) it now is a program to execute.
 This allows two scripts to talk to each other, like in
 <pre>socklinger -v "|bash -c 'while read a; do echo \"\$a\" >&2; done'" bash -c 'echo hello world'</pre>
+
+Option -f is thought to change the FD on which the socket is handed to the script.
+
+Option -t gives an upper bound to the connect timeout.  This only works on connect mode.
+
+Option -w limits the lingering to a maximum time.
+This is in contrast to -l which restarts on data received.
+

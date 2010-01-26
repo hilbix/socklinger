@@ -24,6 +24,9 @@
  * 02110-1301 USA.
  *
  * $Log$
+ * Revision 1.25  2010-01-26 04:07:28  tino
+ * Option -w (max linger time)
+ *
  * Revision 1.24  2010-01-25 23:03:12  tino
  * Option -f works, also scripts are working, too.
  *
@@ -140,6 +143,7 @@ struct socklinger_conf
     unsigned long lingersize;	/* Max bytes to read while lingering	*/
     int		rotate;		/* do rotation	*/
     int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
+    int		maxwait;	/* Maximum lingering waiting time	*/
 
     /* Helpers
      */
@@ -236,6 +240,7 @@ socklinger(CONF, int fi, int fo)
   char	*env[8], *cause;
   int	keepfd[3], max, *fds;
   pid_t	pid;
+  time_t	start;
 
   /* set some default socket options
    */
@@ -401,16 +406,36 @@ socklinger(CONF, int fi, int fo)
    * smallband long distance connections even 1 hour can be a short
    * period.
    */
+
+  time(&start);
+  start++;
   for (;;)
     {
       char	buf[BUFSIZ*10];
       int	wasalarm;
+      int	tmp;
 
-      if (conf->lingertime)
-	tino_alarm_set(conf->lingertime, NULL, NULL);
+      tmp = 0;
+      if (conf->lingertime || conf->maxwait)
+	{
+	  if (conf->maxwait)
+	    {
+	      tmp	 = conf->maxwait-(time(NULL)-start);
+	      if (tmp<=0)
+		{
+		  always(conf, "max linger time exceeded");
+		  break;
+		}
+	      if (conf->lingertime && tmp>conf->lingertime)
+		tmp	= conf->lingertime;
+	    }
+	  else
+	    tmp	= conf->lingertime;
+	  tino_alarm_set(tmp, NULL, NULL);
+	}
       n	= tino_file_readI(fi, buf, sizeof buf);
       wasalarm	= tino_alarm_is_pending();
-      if (conf->lingertime)
+      if (tmp)
 	tino_alarm_stop(NULL, NULL);
       if (!n)
 	break;
@@ -819,12 +844,12 @@ process_args(CONF, int argc, char **argv)
 		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
 		      "		For N=0 only a single accept is done (else it loops!)."
 		      , &conf->flag_newstyle,
-#if 0
+
 		      TINO_GETOPT_INT
 		      TINO_GETOPT_TIMESPEC
 		      "t secs	Maximum connect timeout (default=0: system timeout)"
 		      , &conf->timeout,
-#endif
+
 		      TINO_GETOPT_FLAG
 		      "u	use UTC time (see -p and env)"
 		      , &conf->utc,
@@ -836,6 +861,11 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->verbose,
 		      -1,
 		      1,
+
+		      TINO_GETOPT_INT
+		      TINO_GETOPT_TIMESPEC
+		      "w secs	Maximum waiting time on lingering (default=0:forever)"
+		      , &conf->maxwait,
 
 		      NULL);
 
