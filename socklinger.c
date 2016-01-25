@@ -1,12 +1,10 @@
-/* $Header$
- *
- * Execute quick hack shell scripts connected to a socket.
+/* Execute quick hack shell scripts connected to a socket.
  *
  * This program now is far too complex.  Most shall be done
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2010 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2016 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,77 +20,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301 USA.
- *
- * $Log$
- * Revision 1.25  2010-01-26 04:07:28  tino
- * Option -w (max linger time)
- *
- * Revision 1.24  2010-01-25 23:03:12  tino
- * Option -f works, also scripts are working, too.
- *
- * Revision 1.23  2010-01-25 16:17:22  tino
- * Release before additional changes
- *
- * Revision 1.22  2009-07-17 00:22:10  tino
- * SOCKLINGER_PID added in env
- *
- * Revision 1.21  2009-03-17 10:54:05  tino
- * New options for timestamping
- *
- * Revision 1.20  2008-04-21 23:02:30  tino
- * Option -r (rotate) and two new environment variables
- *
- * Revision 1.19  2008-01-24 23:36:54  tino
- * Typo fixes in comments
- *
- * Revision 1.18  2007-05-08 03:30:09  tino
- * See ChangeLog, commit for dist
- *
- * Revision 1.17  2007/04/04 05:30:12  tino
- * Delay corrected, help text improved
- *
- * Revision 1.16  2007/04/04 03:47:16  tino
- * Cleanups before dist
- *
- * Revision 1.15  2007/04/04 03:45:08  tino
- * Internal rewrite to support option -i
- *
- * Revision 1.14  2007/04/03 02:42:38  tino
- * commit for dist (working version as it seems)
- *
- * Revision 1.13  2007/04/03 02:07:27  tino
- * delay function shall work now (and 3 ideas into getopt added but disabled)
- *
- * Revision 1.12  2007/04/02 17:13:42  tino
- * Again some changes, see ChangeLog
- *
- * Revision 1.11  2007/03/27 01:13:03  tino
- * New intermediate version.  Shall work, but untested
- *
- * Revision 1.10  2007/03/26 23:51:29  tino
- * Intermediate checkin: Moved to new CONF instead of function args
- *
- * Revision 1.9  2006/12/12 11:52:17  tino
- * New version with editing in the old edits to do prefork and connect
- *
- * Revision 1.7  2006/02/09 12:53:47  tino
- * one more close was forgotten in the main program
- *
- * Revision 1.6  2006/02/09 11:27:10  tino
- * output generalization and bug fixed as I forgot to
- * close the socket which accepts the connection for the forked program.
- *
- * Revision 1.5  2006/01/25 03:31:13  tino
- * dist 1.3.1
- *
- * Revision 1.4  2005/10/30 03:24:22  tino
- * additional possibilities
- *
- * Revision 1.3  2005/08/19 04:26:39  tino
- * release socklinger 1.3.0
- *
- * Revision 1.2  2004/08/16 14:03:16  Administrator
- * Support for handling more than one connection (a fixed number) in parallel
  */
 
 #if 0
@@ -263,20 +190,26 @@ socklinger(CONF, int fi, int fo)
   if (!peer)
     peer	= tino_sock_get_peernameN(fo);
   if (!peer)
-    peer	= conf->address;
+    peer	= tino_strdupO(conf->address);
   name	= tino_sock_get_socknameN(fi);
   if (!name)
     name	= tino_sock_get_socknameN(fo);
   if (!name)
-    name	= conf->connect;
+    name	= tino_strdupO(conf->connect);
 
   /* A second hack is to preset peer and name in case of process sockets.
    * This really should be handled by the subsystem correctly.
    */
   if (!peer || *conf->address=='|')
-    peer	= tino_strdupO(conf->address);
+    {
+      tino_freeO(peer);
+      peer	= tino_strdupO(conf->address);
+    }
   if (!name || *conf->address=='|')
-    name	= tino_strdupO(conf->connect);
+    {
+      tino_freeO(name);
+      name	= tino_strdupO(conf->connect);
+    }
 
   n		= 0;
   env[n++]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
@@ -500,7 +433,8 @@ socklinger_dosock(CONF)
       /* As the connect may bind to privilege ports
        * end the privilege eleveation here
        */
-      drop_privileges(conf);
+      if (*conf->connect)
+        drop_privileges(conf);
     }
   else
     {
@@ -771,7 +705,15 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_USAGE
 		      "h	This help"
 		      ,
+#if 0
+		      TINO_GETOPT_FLAG
+		      "4	use IPv4 (default: autodetect)"
+		      , &conf->ipv4,
 
+		      TINO_GETOPT_FLAG
+		      "6	use IPv6 (default: autodetect)"
+		      , &conf->ipv6,
+#endif
 		      TINO_GETOPT_STRING
 		      "b addr	bind to address for connect, implies option -c\n"
 		      "		For process sockets ('|'-type) this is the environment\n"
@@ -968,7 +910,7 @@ main(int argc, char **argv)
 	conf->count	= -conf->count;
 #endif
    }
-  else if (!conf->connect)
+  else if (!*conf->connect)
     drop_privileges(conf);	/* drop privileges early	*/
 
   conf->nr	= 0;
