@@ -871,7 +871,9 @@ main(int argc, char **argv)
 {
   static struct socklinger_conf	config;	/* may be big and must be preset 0	*/
   CONF	= &config;
-  
+
+  tino_sock_error_fn	= tino_sock_error_fn_ignore;
+
   process_args(conf, argc, argv);
   tino_sigdummy(SIGCHLD);		/* interrupt process on SIGCHLD	*/
 
