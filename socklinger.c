@@ -624,7 +624,10 @@ socklinger_postfork(CONF)
 
       fd	= socklinger_dosock(conf);
       if (fd<0)
-	continue;
+        {
+	  conf->dodelay	= 1;	/* something failed, delay!	*/
+	  continue;
+	}
       if (socklinger_forkchild(conf, n)>0)
 	break;
       tino_file_closeE(fd);
