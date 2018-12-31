@@ -518,17 +518,26 @@ socklinger_waitchild(CONF)
 {
   int	n, e, status;
   pid_t	pid;
+  int	flags;
 
   conf->nr	= 0;
   n		= socklinger_child_findfree(conf);
+  flags		= 0;
   if (!n)
     note(conf, "wait for childs");
   else if (conf->dodelay)		/* send signal in delay secs	*/
     {
       verbose(conf, "delaying %ds", conf->delay);
       tino_alarm_set(conf->delay, NULL, NULL);
+      if (!conf->running)
+	{
+	  pause();
+	  flags	= WNOHANG;
+	}
     }
-  pid	= waitpid((pid_t)-1, &status, (!conf->dodelay && n ? WNOHANG : 0));
+  else
+    flags	= WNOHANG;
+  pid	= waitpid((pid_t)-1, &status, flags);
   e	= errno;
   if (n && conf->dodelay)
     tino_alarm_stop(NULL, NULL);
@@ -622,7 +631,10 @@ socklinger_postfork(CONF)
 
       fd	= socklinger_dosock(conf);
       if (fd<0)
-	continue;
+        {
+	  conf->dodelay	= 1;	/* something failed, delay!	*/
+	  continue;
+	}
       if (socklinger_forkchild(conf, n)>0)
 	break;
       tino_file_closeE(fd);
