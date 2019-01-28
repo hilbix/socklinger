@@ -452,19 +452,28 @@ socklinger_dosock(CONF)
 }
 
 static int
-socklinger_run(CONF)
+socklinger_close(CONF, int fd)
 {
-  int	fd;
-
-  tino_hup_ignoreO(0);
-  fd	= socklinger_dosock(conf);
   if (fd<0)
-    return 1;
+    return -1;
   if (socklinger(conf, fd, fd))
-    perror(note_str(conf, "socklinger"));
+    {
+      perror(note_str(conf, "socklinger"));
+      tino_file_close_ignO(fd);
+      return 1;
+    }
+  if (tino_file_nonblockE(fd))
+    perror(note_str(conf, "unblock"));
   if (tino_file_closeE(fd))
     tino_exit(note_str(conf, "close"));
   return 0;
+}
+
+static int
+socklinger_run(CONF)
+{
+  tino_hup_ignoreO(0);
+  return socklinger_close(conf, socklinger_dosock(conf));
 }
 
 static void
@@ -648,14 +657,8 @@ socklinger_postfork(CONF)
   if (conf->sock>=0)
     tino_file_closeE(conf->sock);
   /* keep conf->sock for close() action above	*/
-  if (socklinger(conf, fd, fd))
-    {
-      perror(note_str(conf, "socklinger"));
-      exit(1);
-    }
-  if (tino_file_closeE(fd))
-    tino_exit(note_str(conf, "close"));
-  exit(0);
+
+  exit(socklinger_close(conf, fd));
 }
 
 static void
@@ -964,7 +967,8 @@ main(int argc, char **argv)
        * returns an error (there are spurious connects out there).
        */
       tino_hup_startO(note_str(conf, "HUP received"));
-      while (socklinger_run(conf) || !conf->flag_newstyle);
+      while (socklinger_run(conf)<0 || !conf->flag_newstyle)
+        tino_relax();
     }
   return 0;
 }
