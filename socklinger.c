@@ -727,11 +727,12 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_STRING
 		      "b addr	bind to address for connect, implies option -c\n"
 		      "		For process sockets ('|'-type) this is the environment\n"
-		      "		like -b 'HELLO=world ANOTHER=var'"
+		      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'"
 		      , &conf->connect,
 
 		      TINO_GETOPT_FLAG
-		      "c	use connect instead of accept"
+		      "c	use connect instead of accept\n"
+		      "		Implied for scripts ('|script') or option -b"
 		      , &flag_connect,
 
 		      TINO_GETOPT_INT
