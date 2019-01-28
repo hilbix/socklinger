@@ -24,8 +24,6 @@
 
 #if 0
 #define	TINO_DP_all	TINO_DP_ON
-#else
-#define TINO_DP_main	TINO_DP_OFF
 #endif
 
 #include "tino/alarm.h"
@@ -61,6 +59,7 @@ struct socklinger_conf
     char	*connect;	/* NULL: accept(); else: connect.  If nonempty: bind arg	*/
     char	**argv;		/* program argument list: program [args]	*/
     int		count;		/* Max number of accepts, connects etc.	*/
+    int		flag_oldstyle;	/* Enable old commandline support and behavior	*/
     int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
     int		delay;		/* Delay forking a number of seconds	*/
     int		timeout;	/* Maximum connect timeout	*/
@@ -453,19 +452,28 @@ socklinger_dosock(CONF)
 }
 
 static int
-socklinger_run(CONF)
+socklinger_close(CONF, int fd)
 {
-  int	fd;
-
-  tino_hup_ignoreO(0);
-  fd	= socklinger_dosock(conf);
   if (fd<0)
-    return 1;
+    return -1;
   if (socklinger(conf, fd, fd))
-    perror(note_str(conf, "socklinger"));
+    {
+      perror(note_str(conf, "socklinger"));
+      tino_file_close_ignE(fd);
+      return 1;
+    }
+  if (tino_file_nonblockE(fd))
+    perror(note_str(conf, "unblock"));
   if (tino_file_closeE(fd))
     tino_exit(note_str(conf, "close"));
   return 0;
+}
+
+static int
+socklinger_run(CONF)
+{
+  tino_hup_ignoreO(0);
+  return socklinger_close(conf, socklinger_dosock(conf));
 }
 
 static void
@@ -649,14 +657,8 @@ socklinger_postfork(CONF)
   if (conf->sock>=0)
     tino_file_closeE(conf->sock);
   /* keep conf->sock for close() action above	*/
-  if (socklinger(conf, fd, fd))
-    {
-      perror(note_str(conf, "socklinger"));
-      exit(1);
-    }
-  if (tino_file_closeE(fd))
-    tino_exit(note_str(conf, "close"));
-  exit(0);
+
+  exit(socklinger_close(conf, fd));
 }
 
 static void
@@ -695,7 +697,7 @@ process_args(CONF, int argc, char **argv)
 
   argn	= tino_getopt(argc, argv, 2, 0,
 		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
-		      " [host]:port|unixsocket|-|'|script' program [args...]\n"
+		      " [host]:port|unix|/unix|@abstact|-|'|script' program [args...]\n"
 		      "\tYou probably need this for simple TCP shell scripts:\n"
 		      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
 		      "\telse the given socket (TCP or unix) is opened and listened on\n"
@@ -729,11 +731,12 @@ process_args(CONF, int argc, char **argv)
 		      TINO_GETOPT_STRING
 		      "b addr	bind to address for connect, implies option -c\n"
 		      "		For process sockets ('|'-type) this is the environment\n"
-		      "		like -b 'HELLO=world ANOTHER=var'"
+		      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'"
 		      , &conf->connect,
 
 		      TINO_GETOPT_FLAG
-		      "c	use connect instead of accept"
+		      "c	use connect instead of accept\n"
+		      "		Implied for scripts ('|script') or option -b"
 		      , &flag_connect,
 
 		      TINO_GETOPT_INT
@@ -771,14 +774,19 @@ process_args(CONF, int argc, char **argv)
 
 		      TINO_GETOPT_INT
 		      "n N	number of parallel connections to serve\n"
-		      "		if missing or 0 socklinger does 1 connect without loop\n"
-		      "		else preforking (N>0) or postforking (N<0) is done.\n"
+		      "		Defaults to 0 which is equivalent to 1 unless option -s.\n"
+		      "		preforking (N>0) or postforking (N<0) is done.\n"
 		      "		Under CygWin preforking is not available for accept mode"
 		      , &conf->count,
 
 		      TINO_GETOPT_FLAG
 		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
 		      , &conf->prepend,
+
+		      TINO_GETOPT_FLAG
+		      "o	old style prefix [n@[[src]>] to first param.\n"
+		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
+		      , &conf->flag_oldstyle,
 
 		      TINO_GETOPT_FLAG
 		      TINO_GETOPT_MIN
@@ -794,9 +802,8 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->rotate,
 
 		      TINO_GETOPT_FLAG
-		      "s	suppress old style prefix [n@[[src]>] to first param.\n"
-		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
-		      "		For N=0 only a single accept is done (else it loops!)."
+		      "s	single shot: for N=0 (default) terminate after first accept\n"
+		      "		Note: option -o is ignored if option -s present."
 		      , &conf->flag_newstyle,
 
 		      TINO_GETOPT_INT
@@ -854,12 +861,12 @@ process_args(CONF, int argc, char **argv)
   if (conf->count || conf->connect)
     conf->flag_newstyle	= 1;
 
-  if (!conf->flag_newstyle)
+  if (conf->flag_oldstyle && !conf->flag_newstyle)
     {
       /* Check for sane option values?
        */
       conf->count	= strtol(conf->address,&end,0);
-      if (*end=='@')
+      if (end!=conf->address && *end=='@')
 	conf->address	= end+1;
       else
 	conf->count	= 0;
@@ -960,7 +967,8 @@ main(int argc, char **argv)
        * returns an error (there are spurious connects out there).
        */
       tino_hup_startO(note_str(conf, "HUP received"));
-      while (socklinger_run(conf) || !conf->flag_newstyle);
+      while (socklinger_run(conf)<0 || !conf->flag_newstyle)
+        tino_relax();
     }
   return 0;
 }
