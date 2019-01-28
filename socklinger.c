@@ -459,7 +459,7 @@ socklinger_close(CONF, int fd)
   if (socklinger(conf, fd, fd))
     {
       perror(note_str(conf, "socklinger"));
-      tino_file_close_ignE(fd);
+      tino_file_close_ignO(fd);
       return 1;
     }
   if (tino_file_nonblockE(fd))
