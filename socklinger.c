@@ -482,7 +482,7 @@ socklinger_alloc_pids(CONF)
   /* missing: if parent terminates, send something like HUP to all
    *  childs
    */
-  000;
+  TINO_XXX;
 
   if (conf->count<0)
     conf->count	= -conf->count;
