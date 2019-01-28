@@ -59,6 +59,7 @@ struct socklinger_conf
     char	*connect;	/* NULL: accept(); else: connect.  If nonempty: bind arg	*/
     char	**argv;		/* program argument list: program [args]	*/
     int		count;		/* Max number of accepts, connects etc.	*/
+    int		flag_oldstyle;	/* Enable old commandline support and behavior	*/
     int		flag_newstyle;	/* Suppress old commandline support and behavior	*/
     int		delay;		/* Delay forking a number of seconds	*/
     int		timeout;	/* Maximum connect timeout	*/
@@ -770,14 +771,19 @@ process_args(CONF, int argc, char **argv)
 
 		      TINO_GETOPT_INT
 		      "n N	number of parallel connections to serve\n"
-		      "		if missing or 0 socklinger does 1 connect without loop\n"
-		      "		else preforking (N>0) or postforking (N<0) is done.\n"
+		      "		Defaults to 0 which is equivalent to 1 unless option -s.\n"
+		      "		preforking (N>0) or postforking (N<0) is done.\n"
 		      "		Under CygWin preforking is not available for accept mode"
 		      , &conf->count,
 
 		      TINO_GETOPT_FLAG
 		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
 		      , &conf->prepend,
+
+		      TINO_GETOPT_FLAG
+		      "o	old style prefix [n@[[src]>] to first param.\n"
+		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
+		      , &conf->flag_oldstyle,
 
 		      TINO_GETOPT_FLAG
 		      TINO_GETOPT_MIN
@@ -793,9 +799,8 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->rotate,
 
 		      TINO_GETOPT_FLAG
-		      "s	suppress old style prefix [n@[[src]>] to first param.\n"
-		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
-		      "		For N=0 only a single accept is done (else it loops!)."
+		      "s	single shot: for N=0 (default) terminate after first accept\n"
+		      "		Note: option -o is ignored if option -s present."
 		      , &conf->flag_newstyle,
 
 		      TINO_GETOPT_INT
@@ -853,7 +858,7 @@ process_args(CONF, int argc, char **argv)
   if (conf->count || conf->connect)
     conf->flag_newstyle	= 1;
 
-  if (!conf->flag_newstyle)
+  if (conf->flag_oldstyle && !conf->flag_newstyle)
     {
       /* Check for sane option values?
        */
