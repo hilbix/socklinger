@@ -1,7 +1,7 @@
 # Makefile automatically generated, do not edit!
 # This output (only this Makefile) is Public Domain.
 #
-#@MD5TINOIGN@ Creation date: Sun Dec 30 23:55:11 CET 2018
+#@MD5TINOIGN@ Creation date: Wed Jan  9 16:01:20 CET 2019
 #
 # This file is based on following files:
 #@MD5TINOIGN@ 1: Makefile.tino
@@ -109,7 +109,7 @@ Makefile:	Makefile.md5
 	$(TOUCH) Makefile
 
 Makefile.md5:	$(VERSIONFILE).$(VERSIONEXT) always
-	@$(GAWK) -vHERE="$(HERE)" -vMAKE="$(MAKE)" -vTINOCOPY="$(TINOCOPY)" 'BEGIN { \
+	@[ -z '$(HERE)' ] || $(GAWK) -vHERE="$(HERE)" -vMAKE="$(MAKE)" -vTINOCOPY="$(TINOCOPY)" 'BEGIN { \
 	if ((getline < "tino/Makefile")>0 && \
 	    (getline < "tino/Makefile.proto")>0 && \
 	    (getline < "tino/Makefile.awk")>-1) \
@@ -173,7 +173,7 @@ $(PROG1):	$(PROG1).o $(OBJS) $(LIBS)
 $(PROG1).o:  socklinger.c tino/alarm.h tino/file.h tino/sysfix.h \
  tino/sysfix_cygwin.h tino/sysfix_diet.h tino/sysfix_linux.h \
  tino/sysfix_osx.h tino/type.h tino/fatal.h tino/ex.h tino/arg.h \
- tino/alloc.h tino/err.h tino/debug.h tino/signals.h tino/file.h \
+ tino/alloc.h tino/debug.h tino/err.h tino/signals.h tino/file.h \
  tino/procsock.h tino/sock.h tino/threads.h tino/strprintf.h tino/str.h \
  tino/syscap.h tino/proc.h tino/strargs.h tino/privilege.h tino/getopt.h \
  tino/str.h tino/hup.h tino/sleep.h socklinger_version.h
