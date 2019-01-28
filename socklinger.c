@@ -24,8 +24,6 @@
 
 #if 0
 #define	TINO_DP_all	TINO_DP_ON
-#else
-#define TINO_DP_main	TINO_DP_OFF
 #endif
 
 #include "tino/alarm.h"
@@ -683,7 +681,7 @@ process_args(CONF, int argc, char **argv)
 
   argn	= tino_getopt(argc, argv, 2, 0,
 		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
-		      " [host]:port|unixsocket|-|'|script' program [args...]\n"
+		      " [host]:port|unix|/unix|@abstact|-|'|script' program [args...]\n"
 		      "\tYou probably need this for simple TCP shell scripts:\n"
 		      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
 		      "\telse the given socket (TCP or unix) is opened and listened on\n"
@@ -847,7 +845,7 @@ process_args(CONF, int argc, char **argv)
       /* Check for sane option values?
        */
       conf->count	= strtol(conf->address,&end,0);
-      if (*end=='@')
+      if (end!=conf->address && *end=='@')
 	conf->address	= end+1;
       else
 	conf->count	= 0;
