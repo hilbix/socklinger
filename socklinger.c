@@ -718,7 +718,7 @@ process_args(CONF, int argc, char **argv)
 
 		      TINO_GETOPT_USAGE
 		      "h	This help"
-		      ,
+		      , /*aegjxyz*/
 #if 0
 		      TINO_GETOPT_FLAG
 		      "4	use IPv4 (default: autodetect)"
@@ -780,13 +780,13 @@ process_args(CONF, int argc, char **argv)
 		      , &conf->count,
 
 		      TINO_GETOPT_FLAG
-		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
-		      , &conf->prepend,
-
-		      TINO_GETOPT_FLAG
 		      "o	old style prefix [n@[[src]>] to first param.\n"
 		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
 		      , &conf->flag_oldstyle,
+
+		      TINO_GETOPT_FLAG
+		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
+		      , &conf->prepend,
 
 		      TINO_GETOPT_FLAG
 		      TINO_GETOPT_MIN
