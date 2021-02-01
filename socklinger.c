@@ -4,7 +4,7 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2016 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2021 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -349,48 +349,48 @@ socklinger(CONF, int fi, int fo)
 
       tmp = 0;
       if (conf->lingertime || conf->maxwait)
-	{
-	  if (conf->maxwait)
-	    {
-	      tmp	 = conf->maxwait-(time(NULL)-start);
-	      if (tmp<=0)
-		{
-		  always(conf, "max linger time exceeded");
-		  break;
-		}
-	      if (conf->lingertime && tmp>conf->lingertime)
-		tmp	= conf->lingertime;
-	    }
-	  else
-	    tmp	= conf->lingertime;
-	  tino_alarm_set(tmp, NULL, NULL);
-	}
+        {
+          if (conf->maxwait)
+            {
+              tmp	 = conf->maxwait-(time(NULL)-start);
+              if (tmp<=0)
+                {
+                  always(conf, "max linger time exceeded");
+                  break;
+                }
+              if (conf->lingertime && tmp>conf->lingertime)
+                tmp	= conf->lingertime;
+            }
+          else
+            tmp	= conf->lingertime;
+          tino_alarm_set(tmp, NULL, NULL);
+        }
       n	= tino_file_readI(fi, buf, sizeof buf);
       wasalarm	= tino_alarm_is_pending();
       if (tmp)
-	tino_alarm_stop(NULL, NULL);
+        tino_alarm_stop(NULL, NULL);
       if (!n)
-	break;
+        break;
       if (n<0)
-	{
-	  if (errno!=EINTR && errno!=EAGAIN)
-	    return 1;
-	  if (wasalarm)
-	    {
-	      always(conf, "linger timeout");
-	      break;
-	    }
-	  tino_relax();
-	}
+        {
+          if (errno!=EINTR && errno!=EAGAIN)
+            return 1;
+          if (wasalarm)
+            {
+              always(conf, "linger timeout");
+              break;
+            }
+          tino_relax();
+        }
       else if (conf->lingersize)
-	{
-	  if (conf->lingersize<=n)
-	    {
-	      always(conf, "linger size exeeded");
-	      break;
-	    }
-	  conf->lingersize	-= n;
-	}
+        {
+          if (conf->lingersize<=n)
+            {
+              always(conf, "linger size exeeded");
+              break;
+            }
+          conf->lingersize	-= n;
+        }
     }
   return 0;
 }
@@ -423,11 +423,11 @@ socklinger_dosock(CONF)
     {
       note(conf, (*conf->connect ? "connect %s as %s" : "connect %s"), conf->address, conf->connect);
       if (conf->timeout)
-	tino_alarm_set(conf->timeout, NULL, NULL);
+        tino_alarm_set(conf->timeout, NULL, NULL);
       fd	= tino_proc_sock(conf->address, "|", conf->connect);
       wasalarm	= tino_alarm_is_pending();
       if (conf->timeout)
-	tino_alarm_stop(NULL, NULL);
+        tino_alarm_stop(NULL, NULL);
 
       /* As the connect may bind to privilege ports
        * end the privilege eleveation here
@@ -443,9 +443,9 @@ socklinger_dosock(CONF)
   if (fd<0)
     {
       if (errno!=EINTR)
-	perror(note_str(conf, conf->connect ? "connect" : "accept"));
+        perror(note_str(conf, conf->connect ? "connect" : "accept"));
       else if (wasalarm)
-	perror(note_str(conf, conf->connect ? "connect timeout" : "accept timeout"));
+        perror(note_str(conf, conf->connect ? "connect timeout" : "accept timeout"));
       tino_relax();
     }
   return fd;
@@ -506,10 +506,10 @@ socklinger_child_findfree(CONF)
   if (conf->rotate)
     {
       if (conf->rotate>conf->count)
-	conf->rotate	= 1;
+        conf->rotate	= 1;
       n	= conf->rotate-1;
       if (!conf->pids[n])
-	return n+1;
+        return n+1;
     }
   for (n=0; n<conf->count; n++)
     if (!conf->pids[n])
@@ -540,10 +540,10 @@ socklinger_waitchild(CONF)
       verbose(conf, "delaying %ds", conf->delay);
       tino_alarm_set(conf->delay, NULL, NULL);
       if (!conf->running)
-	{
-	  pause();
-	  flags	= WNOHANG;
-	}
+        {
+          pause();
+          flags	= WNOHANG;
+        }
     }
   else
     flags	= WNOHANG;
@@ -555,25 +555,25 @@ socklinger_waitchild(CONF)
   if (pid==(pid_t)-1)
     {
       if (e!=EINTR && e!=EAGAIN && e!=ECHILD)
-	{
-	  errno	= e;
-	  socklinger_error(conf, "waitpid()");
-	  return 0;
-	}
+        {
+          errno	= e;
+          socklinger_error(conf, "waitpid()");
+          return 0;
+        }
     }
   else if (pid)
     {
       char	*cause;
 
       for (n=conf->count; --n>=0; )
-	if (pid==conf->pids[n])
-	  {
-	    conf->pids[n]	= 0;
-	    conf->nr		= n+1;	/* is nulled above again	*/
-	    conf->running--;
-	    /* Max corrected on next loop	*/
-	    break;
-	  }
+        if (pid==conf->pids[n])
+          {
+            conf->pids[n]	= 0;
+            conf->nr		= n+1;	/* is nulled above again	*/
+            conf->running--;
+            /* Max corrected on next loop	*/
+            break;
+          }
       cause	= tino_wait_child_status_string(status, NULL);
       note(conf, "child %lu %s%s", (unsigned long)pid, cause, n>=0 ? "" : " (foreign child!)");
       tino_freeO(cause);
@@ -634,19 +634,19 @@ socklinger_postfork(CONF)
 
       n	= socklinger_waitchild(conf);
       if (n<=0)
-	{
-	  tino_relax();
-	  continue;
-	}
+        {
+          tino_relax();
+          continue;
+        }
 
       fd	= socklinger_dosock(conf);
       if (fd<0)
         {
-	  conf->dodelay	= 1;	/* something failed, delay!	*/
-	  continue;
-	}
+          conf->dodelay	= 1;	/* something failed, delay!	*/
+          continue;
+        }
       if (socklinger_forkchild(conf, n)>0)
-	break;
+        break;
       tino_file_closeE(fd);
     }
 
@@ -672,9 +672,9 @@ socklinger_prefork(CONF)
 
       n	= socklinger_waitchild(conf);
       if (n<0)
-	socklinger_error(conf, "child came home");
+        socklinger_error(conf, "child came home");
       if (socklinger_forkchild(conf, n)>0)
-	break;
+        break;
     }
 
   /* forked child code (this is run by the fork()==0)
@@ -696,139 +696,141 @@ process_args(CONF, int argc, char **argv)
   char	*end;
 
   argn	= tino_getopt(argc, argv, 2, 0,
-		      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
-		      " [host]:port|unix|/unix|@abstact|-|'|script' program [args...]\n"
-		      "\tYou probably need this for simple TCP shell scripts:\n"
-		      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
-		      "\telse the given socket (TCP or unix) is opened and listened on\n"
-		      "\tand each connection is served by the progam (max. N in parallel):\n"
-		      "\t1) Exec program with args with stdin/stdout connected to socket\n"
-		      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
-		      "\t   env var SOCKLINGER_PEER is set to the peername\n"
-		      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
-		      "\t   env var SOCKLINGER_PID gives the forking socklinger PID\n"
-		      "\t   env var SOCKLINGER_NOW is set to YYYYMMDD-HHMMSS (see -u)\n"
-		      "\tThe following is only meaningful for postforking:\n"
-		      "\t   env var SOCKLINGER_MAX is set to maximum running NR\n"
-		      "\t   env var SOCKLINGER_COUNT is set to the currently running tasks\n"
-		      "\t2) Wait for program termination.\n"
-		      "\t3) Shutdown the stdout side of the socket.\n"
-		      "\t   Wait (linger) on stdin until EOF is received."
-		      ,
+                      TINO_GETOPT_VERSION(SOCKLINGER_VERSION)
+                      " [host]:port|unix|/unix|@abstact|-|'|script' program [args...]\n"
+                      "\tYou probably need this for simple TCP shell scripts:\n"
+                      "\tif - or '' is given, use stdin/out as socket (inetd/tcpserver)\n"
+                      "\telse the given socket (TCP or unix) is opened and listened on\n"
+                      "\tand each connection is served by the progam (max. N in parallel):\n"
+                      "\t1) Exec program with args with stdin/stdout connected to socket\n"
+                      "\t   env var SOCKLINGER_NR=-1 (inetd), 0 (single) or instance-nr\n"
+                      "\t   env var SOCKLINGER_PEER is set to the peername\n"
+                      "\t   env var SOCKLINGER_SOCK is set to the sockname\n"
+                      "\t   env var SOCKLINGER_PID gives the forking socklinger PID\n"
+                      "\t   env var SOCKLINGER_NOW is set to YYYYMMDD-HHMMSS (see -u)\n"
+                      "\tThe following is only meaningful for postforking:\n"
+                      "\t   env var SOCKLINGER_MAX is set to maximum running NR\n"
+                      "\t   env var SOCKLINGER_COUNT is set to the currently running tasks\n"
+                      "\t2) Wait for program termination.\n"
+                      "\t3) Shutdown the stdout side of the socket.\n"
+                      "\t   Wait (linger) on stdin until EOF is received."
+                      ,
 
-		      TINO_GETOPT_USAGE
-		      "h	This help"
-		      , /*aegjxyz*/
+                      TINO_GETOPT_USAGE
+                      "h	This help"
+                      ,
 #if 0
-		      TINO_GETOPT_FLAG
-		      "4	use IPv4 (default: autodetect)"
-		      , &conf->ipv4,
+                      TINO_GETOPT_FLAG
+                      "4	use IPv4 (default: autodetect)"
+                      , &conf->ipv4,
 
-		      TINO_GETOPT_FLAG
-		      "6	use IPv6 (default: autodetect)"
-		      , &conf->ipv6,
+                      TINO_GETOPT_FLAG
+                      "6	use IPv6 (default: autodetect)"
+                      , &conf->ipv6,
 #endif
-		      TINO_GETOPT_STRING
-		      "b addr	bind to address for connect, implies option -c\n"
-		      "		For process sockets ('|'-type) this is the environment\n"
-		      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'"
-		      , &conf->connect,
+/* a */
+                      TINO_GETOPT_STRING
+                      "b addr	Bind to address for connect, implies option -c\n"
+                      "		For process sockets ('|'-type) this is the environment\n"
+                      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'"
+                      , &conf->connect,
 
-		      TINO_GETOPT_FLAG
-		      "c	use connect instead of accept\n"
-		      "		Implied for scripts ('|script') or option -b"
-		      , &flag_connect,
+                      TINO_GETOPT_FLAG
+                      "c	use Connect instead of accept\n"
+                      "		Implied for scripts ('|script') or option -b"
+                      , &flag_connect,
 
-		      TINO_GETOPT_INT
-		      TINO_GETOPT_TIMESPEC
-		      "d secs	delay forking.  In preforking socklinger sleeps after\n"
-		      "		accept/connect, in postforking it does not fork\n"
-		      "		additional childs for the given time."
-		      , &conf->delay,
-
-		      TINO_GETOPT_INT
-		      TINO_GETOPT_DEFAULT
-		      "f nr	Set fd for socket, default sets it for 0/1"
-		      , &conf->fd,
-		      -1,
-
-		      TINO_GETOPT_FLAG
-		      "i	ignore errors (stay in loop if fork() fails etc.)"
-		      , &conf->ignerr,
+                      TINO_GETOPT_INT
+                      TINO_GETOPT_TIMESPEC
+                      "d secs	Delay forking.  In preforking socklinger sleeps after\n"
+                      "		accept/connect, in postforking it does not fork\n"
+                      "		additional childs for the given time."
+                      , &conf->delay,
+/* e */
+                      TINO_GETOPT_INT
+                      TINO_GETOPT_DEFAULT
+                      "f nr	set Fd for socket, default sets it for 0/1"
+                      , &conf->fd,
+                      -1,
+/* g */
+                      TINO_GETOPT_FLAG
+                      "i	Ignore errors (stay in loop if fork() fails etc.)"
+                      , &conf->ignerr,
+/* j */
 #ifdef HORRIBLY_INSECURE_NEVER_DO_THIS
-		      TINO_GETOPT_FLAG
-		      "k	keep privileges (do not drop privilege escalation)\n"
-		      "		WARNING, USE THAT WITH CARE!"
-		      , &conf->keep_privileges,
+                      TINO_GETOPT_FLAG
+                      "k	Keep privileges (do not drop privilege escalation)\n"
+                      "		WARNING, USE THAT WITH CARE!"
+                      , &conf->keep_privileges,
 #endif
-		      TINO_GETOPT_INT
-		      TINO_GETOPT_TIMESPEC
-		      "l secs	Maximum time to linger (default=0: forever)\n"
-		      "		Note that arriving data restarts the timeout, see -m"
-		      , &conf->lingertime,
+                      TINO_GETOPT_INT
+                      TINO_GETOPT_TIMESPEC
+                      "l secs	maximum time to Linger (default=0: forever)\n"
+                      "		Note that arriving data restarts the timeout, see -m"
+                      , &conf->lingertime,
 
-		      TINO_GETOPT_ULONGINT
-		      TINO_GETOPT_SUFFIX
-		      "m byte	Maximum data to read while lingering (default=0: any)"
-		      , &conf->lingersize,
+                      TINO_GETOPT_ULONGINT
+                      TINO_GETOPT_SUFFIX
+                      "m byte	Maximum data to read while lingering (default=0: any)"
+                      , &conf->lingersize,
 
-		      TINO_GETOPT_INT
-		      "n N	number of parallel connections to serve\n"
-		      "		Defaults to 0 which is equivalent to 1 unless option -s.\n"
-		      "		preforking (N>0) or postforking (N<0) is done.\n"
-		      "		Under CygWin preforking is not available for accept mode"
-		      , &conf->count,
+                      TINO_GETOPT_INT
+                      "n N	Number of parallel connections to serve\n"
+                      "		Defaults to 0 which is equivalent to 1 unless option -s.\n"
+                      "		preforking (N>0) or postforking (N<0) is done.\n"
+                      "		Under CygWin preforking is not available for accept mode"
+                      , &conf->count,
 
-		      TINO_GETOPT_FLAG
-		      "o	old style prefix [n@[[src]>] to first param.\n"
-		      "		'n@' is option -n and '[src]>' are option -b and -c\n"
-		      , &conf->flag_oldstyle,
+                      TINO_GETOPT_FLAG
+                      "o	Old style prefix [n@[[src]>] to first param.\n"
+                      "		'n@' is option -n and '[src]>' are option -b and -c"
+                      , &conf->flag_oldstyle,
 
-		      TINO_GETOPT_FLAG
-		      "p	prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
-		      , &conf->prepend,
+                      TINO_GETOPT_FLAG
+                      "p	Prepend timestamp [YYYYMMDD-HHMMSS] to log lines"
+                      , &conf->prepend,
 
-		      TINO_GETOPT_FLAG
-		      TINO_GETOPT_MIN
-		      TINO_GETOPT_MAX
-		      "q	be more quiet (only tell important things)\n"
-		      "		If not quiet enough, try >/dev/null (errs go to stderr)"
-		      , &conf->verbose,
-		      1,
-		      -1,
+                      TINO_GETOPT_FLAG
+                      TINO_GETOPT_MIN
+                      TINO_GETOPT_MAX
+                      "q	be more Quiet (only tell important things)\n"
+                      "		If not quiet enough, try >/dev/null (errs go to stderr)"
+                      , &conf->verbose,
+                      1,
+                      -1,
 
-		      TINO_GETOPT_FLAG
-		      "r	rotate slots (only meaningful with postforking)"
-		      , &conf->rotate,
+                      TINO_GETOPT_FLAG
+                      "r	Rotate slots (only meaningful with postforking)"
+                      , &conf->rotate,
 
-		      TINO_GETOPT_FLAG
-		      "s	single shot: for N=0 (default) terminate after first accept\n"
-		      "		Note: option -o is ignored if option -s present."
-		      , &conf->flag_newstyle,
+                      TINO_GETOPT_FLAG
+                      "s	Single shot: for N=0 (default) terminate after first accept\n"
+                      "		Note: option -o is ignored if option -s present."
+                      , &conf->flag_newstyle,
 
-		      TINO_GETOPT_INT
-		      TINO_GETOPT_TIMESPEC
-		      "t secs	Maximum connect timeout (default=0: system timeout)"
-		      , &conf->timeout,
+                      TINO_GETOPT_INT
+                      TINO_GETOPT_TIMESPEC
+                      "t secs	maximum connect Timeout (default=0: system timeout)"
+                      , &conf->timeout,
 
-		      TINO_GETOPT_FLAG
-		      "u	use UTC time (see -p and env)"
-		      , &conf->utc,
+                      TINO_GETOPT_FLAG
+                      "u	use UTC time (see -p and env)"
+                      , &conf->utc,
 
-		      TINO_GETOPT_FLAG
-		      TINO_GETOPT_MIN
-		      TINO_GETOPT_MAX
-		      "v	be more verbose (opposite of -q)"
-		      , &conf->verbose,
-		      -1,
-		      1,
+                      TINO_GETOPT_FLAG
+                      TINO_GETOPT_MIN
+                      TINO_GETOPT_MAX
+                      "v	be more Verbose (opposite of -q)"
+                      , &conf->verbose,
+                      -1,
+                      1,
 
-		      TINO_GETOPT_INT
-		      TINO_GETOPT_TIMESPEC
-		      "w secs	Maximum waiting time on lingering (default=0:forever)"
-		      , &conf->maxwait,
-
-		      NULL);
+                      TINO_GETOPT_INT
+                      TINO_GETOPT_TIMESPEC
+                      "w secs	maximum Waiting time on lingering (default=0:forever)"
+                      , &conf->maxwait,
+/* xyz */
+                      NULL);
 
   if (argn<=0)
     exit(1);
@@ -867,21 +869,21 @@ process_args(CONF, int argc, char **argv)
        */
       conf->count	= strtol(conf->address,&end,0);
       if (end!=conf->address && *end=='@')
-	conf->address	= end+1;
+        conf->address	= end+1;
       else
-	conf->count	= 0;
+        conf->count	= 0;
 
       /* conf->sock	= -1;	already done above	*/
       if ((end=strchr(conf->address,'>'))!=0)
-	{
-	  conf->connect	= conf->address;
-	  *end++	= 0;
-	  conf->address	= end;
+        {
+          conf->connect	= conf->address;
+          *end++	= 0;
+          conf->address	= end;
 
-	  /* Still ugly and shall be more OO like
-	   * conf->sock is -1
-	   */
-	}
+          /* Still ugly and shall be more OO like
+           * conf->sock is -1
+           */
+        }
     }
 }
 
@@ -904,15 +906,15 @@ main(int argc, char **argv)
     {
       drop_privileges(conf);
       if (conf->fd>=0)
-	{
-	  perror(note_str(conf, "cannot use option -f here"));
-	  return 3;
-	}
+        {
+          perror(note_str(conf, "cannot use option -f here"));
+          return 3;
+        }
       if (socklinger(conf, 0, 1))
-	{
-	  perror(note_str(conf, "socklinger"));
-	  return 2;
-	}
+        {
+          perror(note_str(conf, "socklinger"));
+          return 2;
+        }
       return 0;
     }
 
@@ -928,7 +930,7 @@ main(int argc, char **argv)
        * processes
        */
       if (conf->count>0)
-	conf->count	= -conf->count;
+        conf->count	= -conf->count;
 #endif
    }
   else if (!*conf->connect)
@@ -953,12 +955,12 @@ main(int argc, char **argv)
        */
       fd	= socklinger_dosock(conf);
       if (fd<0)
-	return 3;
+        return 3;
       if (socklinger(conf, fd, fd))
-	{
-	  perror(note_str(conf, "socklinger"));
-	  return 2;
-	}
+        {
+          perror(note_str(conf, "socklinger"));
+          return 2;
+        }
     }
   else
     {
@@ -972,3 +974,4 @@ main(int argc, char **argv)
     }
   return 0;
 }
+
