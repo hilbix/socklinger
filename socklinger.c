@@ -75,7 +75,7 @@ struct socklinger_conf
      */
     long	pid;
     char	note_buf[80];
-    char	timestring[20];	/* YYYYMMDD-HHMMSS	*/
+    char	timestring[32];	/* YYYYMMDD-HHMMSS	*/
   };
 
 static void
