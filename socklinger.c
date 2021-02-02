@@ -70,6 +70,7 @@ struct socklinger_conf
     int		rotate;		/* do rotation	*/
     int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
     int		maxwait;	/* Maximum lingering waiting time	*/
+    int		transparent;	/* Transparent Proxy support	*/
 
     /* Helpers
      */
@@ -829,7 +830,17 @@ process_args(CONF, int argc, char **argv)
                       TINO_GETOPT_TIMESPEC
                       "w secs	maximum Waiting time on lingering (default=0:forever)"
                       , &conf->maxwait,
-/* xyz */
+
+                      TINO_GETOPT_FLAG
+                      "x	enable transparent proXy support (privileged).  Needs something like:\n"
+                      "		#for locally generated packets -x has no real value:\n"
+                      "		# iptables -t nat -A OUTPUT -p tcp -j DNAT \\\n"
+                      "		#   -d 100.64.0.0/10 --to 127.0.0.1:1\n"
+                      "		#but externally generated packets can be handled transparently with -x:\n"
+                      "		# iptables -t mangle -I PREROUTING -p tcp -j TPROXY \\\n"
+                      "		#   -d 100.64.0.0/10 --on-ip=127.0.0.1 --on-port=1"
+                      , &conf->transparent,
+/* yz */
                       NULL);
 
   if (argn<=0)
@@ -887,6 +898,19 @@ process_args(CONF, int argc, char **argv)
     }
 }
 
+static int
+transparent_hook(int sock, void *user)
+{
+  CONF = user;
+  if (conf->transparent)
+    {
+      int	on = 1;
+      if (TINO_F_setsockopt(sock, IPPROTO_IP, IP_TRANSPARENT, &on, sizeof on))
+        return tino_sock_error("setsockopt(IP_TRANSPARENT)");
+    }
+  return sock;
+}
+
 /* Due to the "connect" case and the alternate fork method this routine got too complex.
  */
 int
@@ -920,7 +944,12 @@ main(int argc, char **argv)
 
   if (!conf->connect)
     {
-      conf->sock	= tino_sock_tcp_listen(conf->address);
+      conf->sock	= tino_sock_tcp_listen_hook(conf->address, 0, transparent_hook, conf);
+      if (conf->sock<0)
+        {
+          socklinger_error(conf, "cannot create listening socket");
+          return 3;
+        }
 
       drop_privileges(conf);
 
