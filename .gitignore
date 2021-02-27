@@ -2,4 +2,3 @@
 *.o
 socklinger
 socklinger.exe
-socklinger_version.h
