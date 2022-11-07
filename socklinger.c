@@ -911,6 +911,16 @@ transparent_hook(int sock, void *user)
   return sock;
 }
 
+/* sorry, awful hack	*/
+
+static struct socklinger_conf	*socklinger_sock_error_fn_conf;
+static void
+socklinger_sock_error_fn(TINO_VA_LIST list)
+{
+  if (socklinger_sock_error_fn_conf->verbose>0)
+    vnote(socklinger_sock_error_fn_conf, list);
+}
+
 /* Due to the "connect" case and the alternate fork method this routine got too complex.
  */
 int
@@ -919,7 +929,8 @@ main(int argc, char **argv)
   static struct socklinger_conf	config;	/* may be big and must be preset 0	*/
   CONF	= &config;
 
-  tino_sock_error_fn	= tino_sock_error_fn_ignore;
+  tino_sock_error_fn		= socklinger_sock_error_fn;
+  socklinger_sock_error_fn_conf	= conf;
 
   process_args(conf, argc, argv);
   tino_sigdummy(SIGCHLD);		/* interrupt process on SIGCHLD	*/
