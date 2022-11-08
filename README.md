@@ -14,8 +14,8 @@ The interesting part here is, that it lingers on the socket before the connectio
 such that the other (receiving) side has enough time to read all data from the socket.
 Without this, some last data might get lost.
 
-> For a more versatile program see `socat`.
-> However it is not easy to use.
+> For a more versatile program see [`socat`](http://www.dest-unreach.org/socat/).
+> However it is not easy to use. (`socat` lacks transparent proxy support).
 
 ## Usage
 
@@ -36,17 +36,17 @@ Without this, some last data might get lost.
 - Option `-s` to run command only a single time if `-n0` (default) is used.
 - Option `-n-X` to increase the number of parallel running `command`s to `X`
 - Option `-nX` to prefork, that is `socklinger` forks before the `accept()`.
-- If you use
 
 - `killall -1 socklinger` gracefully shuts down socklinger
-- 
+
 - Environment in the forked program:
   - `SOCKLINGER_NR` internal number of the connection
-  - `SOCKLINGER_PEER=%s", (peer ? peer : ""));
-  SOCKLINGER_SOCK=%s", (name ? name : ""));
-  SOCKLINGER_MAX=%d", conf->max);
-  SOCKLINGER_COUNT=%d", conf->running);
-  SOCKLINGER_PID=%ld", conf->pid);
-  er, name);   /* sets conf->timestring        */
-  SOCKLINGER_NOW=%s", conf->timestring);
+  - `SOCKLINGER_PEER` peer name (IP:port)
+  - `SOCKLINGER_SOCK` socket name from commandline
+  - `SOCKLINGER_MAX` maximum parallel processes
+  - `SOCKLINGER_COUNT` count of processes forked at time when this spawned
+  - `SOCKLINGER_PID` PID of socklinger parent
+  - `SOCKLINGER_NOW` timestamp as reference
+
+(This README currently is terribly incomplete.)
 
