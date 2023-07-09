@@ -1,1 +1,1 @@
-#define SOCKLINGER_VERSION "4.1.0"
+#define SOCKLINGER_VERSION "4.2.0"
