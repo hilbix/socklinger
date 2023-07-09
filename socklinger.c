@@ -190,22 +190,22 @@ socklinger(CONF, int fi, int fo)
   if (!peer)
     peer	= tino_sock_get_peernameN(fo);
   if (!peer)
-    peer	= tino_strdupO(conf->address);
+    peer	= tino_strdupO(conf->address ? conf->address : "");
   name	= tino_sock_get_socknameN(fi);
   if (!name)
     name	= tino_sock_get_socknameN(fo);
   if (!name)
-    name	= tino_strdupO(conf->connect);
+    name	= tino_strdupO(conf->connect ? conf->connect : "");
 
   /* A second hack is to preset peer and name in case of process sockets.
    * This really should be handled by the subsystem correctly.
    */
-  if (!peer || *conf->address=='|')
+  if (!peer || (conf->address && *conf->address=='|'))
     {
       tino_freeO(peer);
       peer	= tino_strdupO(conf->address);
     }
-  if (!name || *conf->address=='|')
+  if (!name || (conf->address && *conf->address=='|'))
     {
       tino_freeO(name);
       name	= tino_strdupO(conf->connect);
