@@ -1,7 +1,7 @@
 # Makefile automatically generated, do not edit!
 # This output (only this Makefile) is Public Domain.
 #
-#@MD5TINOIGN@ Creation date: Wed Jan  9 16:01:20 CET 2019
+#@MD5TINOIGN@ Creation date: Sun Jul  9 15:09:26 CEST 2023
 #
 # This file is based on following files:
 #@MD5TINOIGN@ 1: Makefile.tino
@@ -176,6 +176,6 @@ $(PROG1).o:  socklinger.c tino/alarm.h tino/file.h tino/sysfix.h \
  tino/alloc.h tino/debug.h tino/err.h tino/signals.h tino/file.h \
  tino/procsock.h tino/sock.h tino/threads.h tino/strprintf.h tino/str.h \
  tino/syscap.h tino/proc.h tino/strargs.h tino/privilege.h tino/getopt.h \
- tino/str.h tino/hup.h tino/sleep.h socklinger_version.h
+ tino/str.h tino/hup.h tino/sleep.h tino/sock_tool.h socklinger_version.h
 
 # end
