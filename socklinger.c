@@ -161,7 +161,7 @@ socklinger_error(CONF, const char *s)
 }
 
 static int
-socklinger(CONF, int fi, int fo)
+socklinger(CONF, int fi, int fo, int ignerr)
 {
   char	*peer, *name;
   int	n;
@@ -172,9 +172,9 @@ socklinger(CONF, int fi, int fo)
 
   /* set some default socket options
    */
-  if ((tino_sock_lingerE(fo, 65535) && fo!=1) ||
-      (tino_sock_rcvbufE(fi, 102400) && fi) ||
-      (tino_sock_sndbufE(fo, 102400) && fo!=1))
+  if ((tino_sock_lingerE(fo, 65535) && !ignerr) ||
+      (tino_sock_rcvbufE(fi, 102400) && !ignerr) ||
+      (tino_sock_sndbufE(fo, 102400) && !ignerr))
     return 1;
 
   tino_sock_reuse(fi, 1);
@@ -458,7 +458,7 @@ socklinger_close(CONF, int fd)
 {
   if (fd<0)
     return -1;
-  if (socklinger(conf, fd, fd))
+  if (socklinger(conf, fd, fd, 0))
     {
       perror(note_str(conf, "socklinger"));
       tino_file_close_ignO(fd);
@@ -954,7 +954,7 @@ main(int argc, char **argv)
    */
   if (!conf->address)
     {
-      int	fd0=0, fd1=1;
+      int	fd0=0, fd1=1, ign=1;
 
       drop_privileges(conf);
       if (conf->fd>=0)
@@ -983,11 +983,12 @@ main(int argc, char **argv)
             copy_driver(0, fds[0]);
             copy_driver(fds[0], 1);
             fd0	= fd1	= fds[1];
+	    ign	= 0;
             break;
           case 0:
             break;
         }
-      if (socklinger(conf, fd0, fd1))
+      if (socklinger(conf, fd0, fd1, ign))
         {
           perror(note_str(conf, "socklinger"));
           return 2;
@@ -1038,7 +1039,7 @@ main(int argc, char **argv)
       fd	= socklinger_dosock(conf);
       if (fd<0)
         return 3;
-      if (socklinger(conf, fd, fd))
+      if (socklinger(conf, fd, fd, 0))
         {
           perror(note_str(conf, "socklinger"));
           return 2;
