@@ -34,6 +34,7 @@
 #include "tino/str.h"
 #include "tino/hup.h"
 #include "tino/sleep.h"
+#include "tino/sock_tool.h"
 
 #include "socklinger_version.h"
 
@@ -48,7 +49,7 @@ struct socklinger_conf
     int		nr;		/* Running number	*/
     int		running;	/* Running total	*/
     int		max;		/* Max running nr	*/
-    pid_t	*pids;		/* List of childs	*/
+    pid_t	*pids;		/* List of children	*/
     int		dodelay;	/* Issue delay before fork	*/
     time_t	now;		/* Last timestamp	*/
 
@@ -160,7 +161,7 @@ socklinger_error(CONF, const char *s)
 }
 
 static int
-socklinger(CONF, int fi, int fo)
+socklinger(CONF, int fi, int fo, int ignerr)
 {
   char	*peer, *name;
   int	n;
@@ -171,9 +172,9 @@ socklinger(CONF, int fi, int fo)
 
   /* set some default socket options
    */
-  if ((tino_sock_lingerE(fo, 65535) && fo!=1) ||
-      (tino_sock_rcvbufE(fi, 102400) && fi) ||
-      (tino_sock_sndbufE(fo, 102400) && fo!=1))
+  if ((tino_sock_lingerE(fo, 65535) && !ignerr) ||
+      (tino_sock_rcvbufE(fi, 102400) && !ignerr) ||
+      (tino_sock_sndbufE(fo, 102400) && !ignerr))
     return 1;
 
   tino_sock_reuse(fi, 1);
@@ -190,22 +191,22 @@ socklinger(CONF, int fi, int fo)
   if (!peer)
     peer	= tino_sock_get_peernameN(fo);
   if (!peer)
-    peer	= tino_strdupO(conf->address);
+    peer	= tino_strdupO(conf->address ? conf->address : "");
   name	= tino_sock_get_socknameN(fi);
   if (!name)
     name	= tino_sock_get_socknameN(fo);
   if (!name)
-    name	= tino_strdupO(conf->connect);
+    name	= tino_strdupO(conf->connect ? conf->connect : "");
 
   /* A second hack is to preset peer and name in case of process sockets.
    * This really should be handled by the subsystem correctly.
    */
-  if (!peer || *conf->address=='|')
+  if (!peer || (conf->address && *conf->address=='|'))
     {
       tino_freeO(peer);
       peer	= tino_strdupO(conf->address);
     }
-  if (!name || *conf->address=='|')
+  if (!name || (conf->address && *conf->address=='|'))
     {
       tino_freeO(name);
       name	= tino_strdupO(conf->connect);
@@ -457,7 +458,7 @@ socklinger_close(CONF, int fd)
 {
   if (fd<0)
     return -1;
-  if (socklinger(conf, fd, fd))
+  if (socklinger(conf, fd, fd, 0))
     {
       perror(note_str(conf, "socklinger"));
       tino_file_close_ignO(fd);
@@ -481,7 +482,7 @@ static void
 socklinger_alloc_pids(CONF)
 {
   /* missing: if parent terminates, send something like HUP to all
-   *  childs
+   *  children
    */
   TINO_XXX;
 
@@ -492,7 +493,7 @@ socklinger_alloc_pids(CONF)
 
 /* Find a free child number
  *
- * 0	all childs taken
+ * 0	all children taken
  * <0	error
  * >0	free child slot
  */
@@ -520,7 +521,7 @@ socklinger_child_findfree(CONF)
 
 /* Wait for a free child slot
  *
- * 0	all childs taken or loop needed
+ * 0	all children taken or loop needed
  * <0	child came home
  * >0	free child slot
  */
@@ -535,7 +536,7 @@ socklinger_waitchild(CONF)
   n		= socklinger_child_findfree(conf);
   flags		= 0;
   if (!n)
-    note(conf, "wait for childs");
+    note(conf, "waiting for children");
   else if (conf->dodelay)		/* send signal in delay secs	*/
     {
       verbose(conf, "delaying %ds", conf->delay);
@@ -733,7 +734,8 @@ process_args(CONF, int argc, char **argv)
                       TINO_GETOPT_STRING
                       "b addr	Bind to address for connect, implies option -c\n"
                       "		For process sockets ('|'-type) this is the environment\n"
-                      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'"
+                      "		like -b 'HELLO=\"\\\"hello world\\\"\" ANOTHER=var'\n"
+                      "		stdin/stdout ('-') allows p)ipe and s)ocketpair"
                       , &conf->connect,
 
                       TINO_GETOPT_FLAG
@@ -745,7 +747,7 @@ process_args(CONF, int argc, char **argv)
                       TINO_GETOPT_TIMESPEC
                       "d secs	Delay forking.  In preforking socklinger sleeps after\n"
                       "		accept/connect, in postforking it does not fork\n"
-                      "		additional childs for the given time."
+                      "		additional children for the given time."
                       , &conf->delay,
 /* e */
                       TINO_GETOPT_INT
@@ -921,6 +923,19 @@ socklinger_sock_error_fn(TINO_VA_LIST list)
     vnote(socklinger_sock_error_fn_conf, list);
 }
 
+static void
+tino_file_pipeO(int fds[2])
+{
+  if (tino_file_pipeE(fds))
+    TINO_FATAL(("pipe()"));
+}
+
+static void
+copy_driver(int i, int o)
+{
+  tino_sock_wrap_forkA(i, o, 0, NULL);
+}
+
 /* Due to the "connect" case and the alternate fork method this routine got too complex.
  */
 int
@@ -939,13 +954,41 @@ main(int argc, char **argv)
    */
   if (!conf->address)
     {
+      int	fd0=0, fd1=1, ign=1;
+
       drop_privileges(conf);
       if (conf->fd>=0)
         {
           perror(note_str(conf, "cannot use option -f here"));
           return 3;
         }
-      if (socklinger(conf, 0, 1))
+      if (conf->connect)
+        switch (*conf->connect)
+          {
+          int fds[2];
+
+          default:
+            socklinger_error(conf, "unknown option -b.  Allowed characters: ps");
+            return 3;
+          case 'p':
+            tino_file_pipeO(fds);
+            copy_driver(0,fds[1]);
+            fd0	= fds[0];
+            tino_file_pipeO(fds);
+            copy_driver(fds[0], 1);
+            fd1	= fds[1];
+            break;
+          case 's':
+            tino_sock_pairA(fds);
+            copy_driver(0, fds[0]);
+            copy_driver(fds[0], 1);
+            fd0	= fd1	= fds[1];
+            ign	= 0;
+            break;
+          case 0:
+            break;
+        }
+      if (socklinger(conf, fd0, fd1, ign))
         {
           perror(note_str(conf, "socklinger"));
           return 2;
@@ -996,7 +1039,7 @@ main(int argc, char **argv)
       fd	= socklinger_dosock(conf);
       if (fd<0)
         return 3;
-      if (socklinger(conf, fd, fd))
+      if (socklinger(conf, fd, fd, 0))
         {
           perror(note_str(conf, "socklinger"));
           return 2;
