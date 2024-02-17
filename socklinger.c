@@ -49,7 +49,7 @@ struct socklinger_conf
     int		nr;		/* Running number	*/
     int		running;	/* Running total	*/
     int		max;		/* Max running nr	*/
-    pid_t	*pids;		/* List of childs	*/
+    pid_t	*pids;		/* List of children	*/
     int		dodelay;	/* Issue delay before fork	*/
     time_t	now;		/* Last timestamp	*/
 
@@ -482,7 +482,7 @@ static void
 socklinger_alloc_pids(CONF)
 {
   /* missing: if parent terminates, send something like HUP to all
-   *  childs
+   *  children
    */
   TINO_XXX;
 
@@ -493,7 +493,7 @@ socklinger_alloc_pids(CONF)
 
 /* Find a free child number
  *
- * 0	all childs taken
+ * 0	all children taken
  * <0	error
  * >0	free child slot
  */
@@ -521,7 +521,7 @@ socklinger_child_findfree(CONF)
 
 /* Wait for a free child slot
  *
- * 0	all childs taken or loop needed
+ * 0	all children taken or loop needed
  * <0	child came home
  * >0	free child slot
  */
@@ -536,7 +536,7 @@ socklinger_waitchild(CONF)
   n		= socklinger_child_findfree(conf);
   flags		= 0;
   if (!n)
-    note(conf, "wait for childs");
+    note(conf, "waiting for children");
   else if (conf->dodelay)		/* send signal in delay secs	*/
     {
       verbose(conf, "delaying %ds", conf->delay);
@@ -747,7 +747,7 @@ process_args(CONF, int argc, char **argv)
                       TINO_GETOPT_TIMESPEC
                       "d secs	Delay forking.  In preforking socklinger sleeps after\n"
                       "		accept/connect, in postforking it does not fork\n"
-                      "		additional childs for the given time."
+                      "		additional children for the given time."
                       , &conf->delay,
 /* e */
                       TINO_GETOPT_INT
@@ -983,7 +983,7 @@ main(int argc, char **argv)
             copy_driver(0, fds[0]);
             copy_driver(fds[0], 1);
             fd0	= fd1	= fds[1];
-	    ign	= 0;
+            ign	= 0;
             break;
           case 0:
             break;
