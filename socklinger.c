@@ -38,6 +38,8 @@
 
 #include "socklinger_version.h"
 
+#include <sys/ioctl.h>
+
 #undef CONF
 #define	CONF	struct socklinger_conf *conf
 
@@ -72,6 +74,9 @@ struct socklinger_conf
     int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
     int		maxwait;	/* Maximum lingering waiting time	*/
     int		transparent;	/* Transparent Proxy support	*/
+    int		proxyprot;	/* HaProxy Proxy Protocol	*/
+    char	*proxypeer;	/* HaProxy Proxy Protocol source	*/
+    char	*proxyname;	/* HaProxy Proxy Protocol destination	*/
 
     /* Helpers
      */
@@ -184,33 +189,44 @@ socklinger(CONF, int fi, int fo, int ignerr)
       tino_sock_reuse(fo, 1);
       tino_sock_keepalive(fo, 1);
     }
+  /* A second hack is to preset peer and name in case of process sockets.
+   * This really should be handled by the subsystem correctly.
+   */
+  peer	= 0;
+  name	= 0;
+  if (conf->address && *conf->address=='|')
+    {
+      peer	= tino_strdupO(conf->address);
+      name	= tino_strdupO(conf->connect);
+    }
+  /* Now hack in the proxied address.
+   * This overwrites everything
+   */
+  if (conf->proxypeer)
+    {
+      tino_freeO(peer);
+      peer	= tino_strdupO(conf->proxypeer);
+    }
+  if (conf->proxyname)
+    {
+      tino_freeO(name);
+      name	= tino_strdupO(conf->proxyname);
+    }
   /* Prepare the environment
    * This is a hack today, shall be done better in future
    */
-  peer	= tino_sock_get_peernameN(fi);
+  if (!peer)
+    peer	= tino_sock_get_peernameN(fi);
   if (!peer)
     peer	= tino_sock_get_peernameN(fo);
   if (!peer)
     peer	= tino_strdupO(conf->address ? conf->address : "");
-  name	= tino_sock_get_socknameN(fi);
+  if (!name)
+    name	= tino_sock_get_socknameN(fi);
   if (!name)
     name	= tino_sock_get_socknameN(fo);
   if (!name)
     name	= tino_strdupO(conf->connect ? conf->connect : "");
-
-  /* A second hack is to preset peer and name in case of process sockets.
-   * This really should be handled by the subsystem correctly.
-   */
-  if (!peer || (conf->address && *conf->address=='|'))
-    {
-      tino_freeO(peer);
-      peer	= tino_strdupO(conf->address);
-    }
-  if (!name || (conf->address && *conf->address=='|'))
-    {
-      tino_freeO(name);
-      name	= tino_strdupO(conf->connect);
-    }
 
   n		= 0;
   env[n++]	= tino_str_printf("SOCKLINGER_NR=%d", conf->nr);
@@ -415,6 +431,241 @@ drop_privileges(CONF)
   errno	= e;
 }
 
+#define	PROXY_PROTOCOL_BUF_SIZE	256
+
+/* -1	error
+ * 0	ok
+ * 1	EOF (short read)
+ */
+static int
+pp_read(int fd, char *buf, int len)
+{
+  int	loop;
+  for (loop=100; --loop>=0; )
+    {
+      int	got;
+
+      got	= read(fd, buf, len);
+      if (got < 0)
+        {
+          if (errno == EINTR || errno == EAGAIN) continue;
+          break;
+        }
+      if (!got)
+        return 1;
+      if (got >= len)
+        return 0;
+      buf	+= got;
+      len	-= got;
+    }
+  return -1;
+}
+
+/* Reinventing the wheel here, sigh.
+ * This can run on IPv4 only machine with HaProxy forwarding IPv6 sockets
+ * hence we do not necessarily have IPv6 capable libraries.
+ */
+static const char *
+ipv6addr(uint8_t addr[16], uint16_t port)
+{
+  char	buf[64], *ptr;
+  int	i;
+
+  ptr	= buf;
+  for (i=0; i<16; i+=2)
+    snprintf(ptr, 6, ":%02x%02x", addr[2*i], addr[2*i+1]);
+  *buf		= '[';
+  snprintf(ptr, 6, "]:%d", ntohs(port));
+  return tino_strdupO(buf);
+}
+
+static int
+proxy_protocol1(CONF, int fd, char buf[PROXY_PROTOCOL_BUF_SIZE], int len)
+{
+  if (len<8) return 8;
+  if (strncmp(buf, "PROXY ", 6))
+    return -1;							/* not Proxy Protocol v1	*/
+  switch (buf[6])
+    {
+    default:	return -2;	/* invalid	*/
+    case 'T':			/* TCP4 or TCP6	*/
+    case 'U':			/* UNKNOWN	*/
+      break;
+    }
+  000;
+  return -1;
+}
+
+static int
+proxy_protocol2(CONF, int fd, char buf[PROXY_PROTOCOL_BUF_SIZE], int len)
+{
+  int	proxy, more, want;
+  union proxy_addr
+    {
+      struct
+        {
+          uint32_t		src_addr;
+          uint32_t		dst_addr;
+          uint16_t		src_port;
+          uint16_t		dst_port;
+        }		v4;					/* for TCP/UDP over IPv4, len = 12 */
+      struct
+        {
+          uint8_t		src_addr[16];
+          uint8_t		dst_addr[16];
+          uint16_t		src_port;
+          uint16_t		dst_port;
+        }		v8;					/* for TCP/UDP over IPv6, len = 36 */
+      struct
+        {
+           uint8_t		src_addr[108];
+           uint8_t		dst_addr[108];
+           uint8_t		nul;
+        }		ux;					/* for AF_UNIX sockets, len = 216 */
+    } addr;
+
+  if (len<16) return 16;
+  if (!memcmp(buf, "\r\n\r\n\0\r\nQUIT\n\2", 12)
+      || (buf[12]&0xf0) != 0x20)
+    return -1;							/* not Proxy Protocol v2	*/
+  proxy = 0;
+  switch (buf[12]&0xf)
+    {
+    case 1:	proxy=1;		/* use address information	*/
+    case 0:	break;			/* skip address information	*/
+    default:	return -2;		/* terminate	*/
+    }
+
+  more	= ((buf[14]&0xff)<<8) | (buf[15]&0xff);
+  want	= sizeof addr;
+  if (want > more) want = more;
+  want	+= 16;
+  if (len < want) return want;
+
+  if (pp_read(fd, buf, want)) return -2;	/* skip proxy header	*/
+
+  switch (buf[13]&0xff)
+    {
+    case 0x11:	proxy|=4;	break;
+    case 0x21:	proxy|=6;	break;
+    case 0x31:	proxy|=2;	break;
+    default:	proxy=0;		/* do not use address information	*/
+    }
+
+  memset(&addr, 0, sizeof addr);
+  if (want>sizeof addr) want = sizeof addr;
+  memcpy(&addr, buf+16, want);
+
+  /* skip TLVs	*/
+  want	-= 16;
+  more	-= want;
+  while (more)
+    {
+      int	get;
+
+      get	= PROXY_PROTOCOL_BUF_SIZE;
+      if (get>more) get=more;
+      if (pp_read(fd, buf, get)) return -2;
+      more	-= get;
+    }
+
+  switch (proxy)
+    {
+    case 3:
+      addr.ux.nul	= 0;
+      if (!addr.ux.dst_addr[0]) addr.ux.dst_addr[0] = '@';	/* Linux Abstract Unix Domain Socket */
+      conf->proxyname	= ipv4addr(addr.ux.dst_addr);
+      addr.ux.dst_addr[0]	= 0;
+      if (!addr.ux.src_addr[0]) addr.ux.src_addr[0] = '@';	/* Linux Abstract Unix Domain Socket */
+      conf->proxypeer	= tino_strdupO(addr.ux.src_addr);
+      break;
+
+    case 5:
+      conf->proxyname	= ipv4addr(addr.v4.dst_addr, addr.v4.dst_port);
+      conf->proxypeer	= ipv4addr(addr.v4.src_addr, addr.v4.src_port);
+      break;
+
+    case 7:
+      conf->proxyname	= ipv6addr(addr.v6.dst_addr, addr.v6.dst_port);
+      conf->proxypeer	= ipv6addr(addr.v6.src_addr, addr.v6.src_port);
+      break;
+    }
+
+  return 0;
+}
+
+/* peek and read away the HaProxy Proxy Protocol	*/
+static int
+proxy_protocol(CONF, int fd)
+{
+  int	loop, len;
+  const char	*cause;
+
+  if (fd<0 || !conf->proxyprot)
+    return fd;
+
+  tino_free_nullUb(&conf->proxypeer);
+  tino_free_nullUb(&conf->proxyname);
+
+  cause	= "proxy protocol detection loops too much";
+  len	= 1;
+  for (loop=999; --loop && len>0; )
+    {
+      int	ret, wasalarm, avail;
+      char	buf[PROXY_PROTOCOL_BUF_SIZE];
+
+      TINO_FATAL_IF(len > sizeof buf);
+      if (conf->timeout)
+        tino_alarm_set(conf->timeout, NULL, NULL);
+      /* use alarm() as in future we perhaps also support non-sockets here */
+      if (!ioctl(fd, FIONREAD, &avail) && avail > len)
+        len	= avail;
+      if (len > sizeof buf)
+        len	= sizeof buf;
+      ret	= recv(fd, buf, len, MSG_PEEK);
+      wasalarm  = tino_alarm_is_pending();
+      if (conf->timeout)
+        tino_alarm_stop(NULL, NULL);
+      if (!ret)		/* EOF	*/
+        return fd;
+      if (ret>0)
+        {
+          switch (buf[0])
+            {
+            case 'P':	len	= proxy_protocol1(conf, fd, buf, ret); continue;
+            case 13:	len	= proxy_protocol2(conf, fd, buf, ret); continue;
+            }
+          cause	= "proxy protocol not detected"; 
+          break;
+        }
+      if (wasalarm)
+        {
+          cause	= "proxy protocol detection timeout";
+          break;
+        }
+      if (errno != EINTR)
+        len	= -1;
+    }
+  /* len==0	detected
+   * len>0	failure in cause
+   * len==-1	not detected
+   * len==-2	close connection
+   */
+
+  if (!len)
+    return fd;
+  switch (len)
+    {
+    case -1:	cause	= "proxy protocol detection error";	break;
+    case -2:	cause	= "proxy protocol failure";		break;
+    }
+  perror(note_str(conf, cause));
+  if (len>-2 && conf->proxyprot<2)
+    return fd;
+  tino_file_close_ignO(fd);
+  return -1;
+}
+
 static int
 socklinger_dosock(CONF)
 {
@@ -450,7 +701,8 @@ socklinger_dosock(CONF)
         perror(note_str(conf, conf->connect ? "connect timeout" : "accept timeout"));
       tino_relax();
     }
-  return fd;
+  /* we allow proxy protocol v1 and v2 */
+  return proxy_protocol(conf, fd);
 }
 
 static int
@@ -730,7 +982,14 @@ process_args(CONF, int argc, char **argv)
                       "6	use IPv6 (default: autodetect)"
                       , &conf->ipv6,
 #endif
-/* a */
+
+                      TINO_GETOPT_FLAG
+                      TINO_GETOPT_MAX
+                      "a	accept HaProxy proxy protocol\n"
+                      "		double this option to make it mandatory"
+                      , &conf->proxyprot,
+                      2,
+
                       TINO_GETOPT_STRING
                       "b addr	Bind to address for connect, implies option -c\n"
                       "		For process sockets ('|'-type) this is the environment\n"
