@@ -374,7 +374,7 @@ socklinger(CONF, int fi, int fo, int ignerr)
         tino_alarm_stop(NULL, NULL);
       if (!n)
         {
-          verbose(conf, 'linger end');
+          verbose(conf, "linger end");
           break;
         }
       if (n<0)
