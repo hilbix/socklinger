@@ -72,6 +72,7 @@ struct socklinger_conf
     int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
     int		maxwait;	/* Maximum lingering waiting time	*/
     int		transparent;	/* Transparent Proxy support	*/
+    int		teardown;	/* socket closes reading side, too	*/
 
     /* Helpers
      */
@@ -278,7 +279,7 @@ socklinger(CONF, int fi, int fo, int ignerr)
    */
   if (fo!=fi)
     tino_file_closeE(fo);
-  if (tino_sock_shutdownE(fi, SHUT_WR))
+  if (tino_sock_shutdownE(fi, conf->teardown ? SHUT_RDWR : SHUT_WR))
     return 1;
 
   /* This shall become a library routine as correct lingering is
@@ -372,7 +373,10 @@ socklinger(CONF, int fi, int fo, int ignerr)
       if (tmp)
         tino_alarm_stop(NULL, NULL);
       if (!n)
-        break;
+        {
+          verbose(conf, 'linger end');
+          break;
+        }
       if (n<0)
         {
           if (errno!=EINTR && errno!=EAGAIN)
@@ -843,6 +847,10 @@ process_args(CONF, int argc, char **argv)
                       "		#   -d 100.64.0.0/10 --on-ip=127.0.0.1 --on-port=1"
                       , &conf->transparent,
 /* yz */
+                      TINO_GETOPT_FLAG
+                      "z	tear down everything completely\n"
+                      "		(close the reading side of socket, too)"
+                      , &conf->teardown,
                       NULL);
 
   if (argn<=0)
