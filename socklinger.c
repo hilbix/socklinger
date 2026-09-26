@@ -4,7 +4,7 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2021 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2026 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -856,8 +856,8 @@ process_args(CONF, int argc, char **argv)
   if (argn<=0)
     exit(1);
 
-  if (!conf->lingertime)
-    verbose(conf, "unlimited lingering, perhaps try option -l");
+  if (!conf->lingertime && !conf->maxwait)
+    verbose(conf, "unlimited lingering, perhaps try option -l or -m");
 
   /* We need the PID for the environment, so set it here.
    * Pherhaps this changes as we might be called via chaining.
