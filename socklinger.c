@@ -4,7 +4,7 @@
  * implicitely by tinolib.  And it is far too much hacked, so it needs
  * a rewrite.
  *
- * Copyright (C)2004-2021 by Valentin Hilbig <webmaster@scylla-charybdis.com>
+ * Copyright (C)2004-2026 by Valentin Hilbig <webmaster@scylla-charybdis.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,7 @@ struct socklinger_conf
     int		prepend, utc;	/* prepend timestamp, prepend UTC	*/
     int		maxwait;	/* Maximum lingering waiting time	*/
     int		transparent;	/* Transparent Proxy support	*/
+    int		teardown;	/* socket closes reading side, too	*/
     int		proxyprot;	/* HaProxy Proxy Protocol	*/
     char	*proxypeer;	/* HaProxy Proxy Protocol source	*/
     char	*proxyname;	/* HaProxy Proxy Protocol destination	*/
@@ -294,7 +295,7 @@ socklinger(CONF, int fi, int fo, int ignerr)
    */
   if (fo!=fi)
     tino_file_closeE(fo);
-  if (tino_sock_shutdownE(fi, SHUT_WR))
+  if (tino_sock_shutdownE(fi, conf->teardown ? SHUT_RDWR : SHUT_WR))
     return 1;
 
   /* This shall become a library routine as correct lingering is
@@ -388,7 +389,10 @@ socklinger(CONF, int fi, int fo, int ignerr)
       if (tmp)
         tino_alarm_stop(NULL, NULL);
       if (!n)
-        break;
+        {
+          verbose(conf, "linger end");
+          break;
+        }
       if (n<0)
         {
           if (errno!=EINTR && errno!=EAGAIN)
@@ -1102,13 +1106,17 @@ process_args(CONF, int argc, char **argv)
                       "		#   -d 100.64.0.0/10 --on-ip=127.0.0.1 --on-port=1"
                       , &conf->transparent,
 /* yz */
+                      TINO_GETOPT_FLAG
+                      "z	tear down everything completely\n"
+                      "		(close the reading side of socket, too)"
+                      , &conf->teardown,
                       NULL);
 
   if (argn<=0)
     exit(1);
 
-  if (!conf->lingertime)
-    verbose(conf, "unlimited lingering, perhaps try option -l");
+  if (!conf->lingertime && !conf->maxwait)
+    verbose(conf, "unlimited lingering, perhaps try option -l or -m");
 
   /* We need the PID for the environment, so set it here.
    * Pherhaps this changes as we might be called via chaining.
